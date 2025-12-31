@@ -12,7 +12,23 @@ import os
 import math
 from typing import Dict, Any
 
-from wasmtime import Config, Engine, Store, Module, Instance, Func, FuncType, ValType
+# Lazy import for wasmtime - only needed for WebRTC mode
+wasmtime = None
+
+
+def _ensure_wasmtime():
+    """Lazily import wasmtime module when needed."""
+    global wasmtime
+    if wasmtime is None:
+        try:
+            import wasmtime as wt
+            wasmtime = wt
+        except ImportError:
+            raise ImportError(
+                "wasmtime is required for WebRTC LiDAR decoding. "
+                "Install it with: pip install wasmtime"
+            )
+    return wasmtime
 from ament_index_python import get_package_share_directory
 
 
@@ -69,25 +85,27 @@ class LidarDecoder:
     """Original WASM-based LiDAR decoder - the working implementation"""
     
     def __init__(self) -> None:
-        config = Config()
+        wt = _ensure_wasmtime()
+        
+        config = wt.Config()
         config.wasm_multi_value = True
         config.debug_info = True
-        self.store = Store(Engine(config))
+        self.store = wt.Store(wt.Engine(config))
 
         libvoxel_path = os.path.join(
             get_package_share_directory('go2_robot_sdk'),
             "external_lib",
             'libvoxel.wasm')
 
-        self.module = Module.from_file(self.store.engine, libvoxel_path)
+        self.module = wt.Module.from_file(self.store.engine, libvoxel_path)
 
-        self.a_callback_type = FuncType([ValType.i32()], [ValType.i32()])
-        self.b_callback_type = FuncType([ValType.i32(), ValType.i32(), ValType.i32()], [])
+        self.a_callback_type = wt.FuncType([wt.ValType.i32()], [wt.ValType.i32()])
+        self.b_callback_type = wt.FuncType([wt.ValType.i32(), wt.ValType.i32(), wt.ValType.i32()], [])
 
-        a = Func(self.store, self.a_callback_type, self.adjust_memory_size)
-        b = Func(self.store, self.b_callback_type, self.copy_memory_region)
+        a = wt.Func(self.store, self.a_callback_type, self.adjust_memory_size)
+        b = wt.Func(self.store, self.b_callback_type, self.copy_memory_region)
 
-        self.instance = Instance(self.store, self.module, [a, b])
+        self.instance = wt.Instance(self.store, self.module, [a, b])
 
         self.generate = self.instance.exports(self.store)["e"]
         self.malloc = self.instance.exports(self.store)["f"]

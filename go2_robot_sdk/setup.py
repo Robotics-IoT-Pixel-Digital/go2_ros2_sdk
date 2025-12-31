@@ -25,6 +25,7 @@ setup(
         (os.path.join('share', package_name, 'calibration'), glob(os.path.join('calibration', '*'))),
         (os.path.join('share', package_name, 'external_lib'), ['external_lib/libvoxel.wasm']),
         (os.path.join('share', package_name, 'external_lib/aioice'), glob(os.path.join('external_lib/aioice/src/aioice', '*'))),
+        (os.path.join('share', package_name, 'scripts'), glob(os.path.join('scripts', '*.sh'))),
 
 
     ],

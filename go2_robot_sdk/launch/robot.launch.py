@@ -8,7 +8,7 @@ from launch import LaunchDescription
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument
+from launch.actions import IncludeLaunchDescription, DeclareLaunchArgument, SetEnvironmentVariable
 from launch.launch_description_sources import FrontendLaunchDescriptionSource, PythonLaunchDescriptionSource
 
 
@@ -44,7 +44,10 @@ class Go2LaunchConfig:
     
     def _determine_connection_mode(self) -> str:
         """Determine connection mode based on IP list and connection type"""
-        return "single" if len(self.robot_ip_list) == 1 and self.conn_type != "cyclonedds" else "multi"
+        # CycloneDDS with single robot should also use single mode
+        if len(self.robot_ip_list) > 1:
+            return "multi"
+        return "single"
     
     def _get_rviz_config(self) -> str:
         """Get appropriate RViz configuration file"""
@@ -68,6 +71,7 @@ class Go2LaunchConfig:
             'nav2': os.path.join(self.package_dir, 'config', 'nav2_params.yaml'),
             'rviz': os.path.join(self.package_dir, 'config', self.rviz_config),
             'urdf': os.path.join(self.package_dir, 'urdf', self.urdf_file),
+            'cyclonedds': os.path.join(self.package_dir, 'config', 'cyclonedds.xml'),
         }
 
 
@@ -178,6 +182,10 @@ class Go2NodeFactory:
     
     def create_core_nodes(self) -> List[Node]:
         """Create core Go2 robot nodes"""
+        
+        # Note: CycloneDDS config is handled via CYCLONEDDS_URI env var if needed
+        # The default FastDDS should work with mirrored WSL networking
+        
         return [
             # Main robot driver (clean architecture)
             Node(
@@ -344,8 +352,19 @@ def generate_launch_description():
     visualization_nodes = factory.create_visualization_nodes()
     include_launches = factory.create_include_launches()
     
+    # Start with environment setup for CycloneDDS if needed
+    env_setup = []
+    if config.conn_type == 'cyclonedds':
+        print(f"🔧 Setting up CycloneDDS environment...")
+        print(f"   Config file: {config.config_paths['cyclonedds']}")
+        env_setup = [
+            SetEnvironmentVariable('RMW_IMPLEMENTATION', 'rmw_cyclonedds_cpp'),
+            SetEnvironmentVariable('CYCLONEDDS_URI', f"file://{config.config_paths['cyclonedds']}"),
+        ]
+    
     # Combine all elements
     launch_entities = (
+        env_setup +
         launch_args +
         robot_state_nodes +
         core_nodes +

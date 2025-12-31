@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  CycloneDDS Configuration for Go2 Pro Robot (Ethernet Connection)
+  
+  IMPORTANT: Your PC must be connected to the Go2 Pro via Ethernet.
+  The Go2 Pro uses the 192.168.123.x subnet.
+  Default Go2 Pro IP: 192.168.123.161
+  Your PC should have an IP in the same subnet (e.g., 192.168.123.100)
+  
+  Network Setup on Ubuntu/WSL:
+    sudo ip addr add 192.168.123.100/24 dev <interface>
+    
+  Or configure via netplan/NetworkManager with static IP.
+-->
+<CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+    <Domain id="any">
+        <General>
+            <!-- 
+                Network interface configuration for Go2 Ethernet connection.
+                Explicitly bind to eth0 for WSL2 compatibility.
+            -->
+            <Interfaces>
+                <NetworkInterface name="eth0" priority="default" />
+            </Interfaces>
+            <!-- Disable multicast for WSL2 compatibility - use unicast only -->
+            <AllowMulticast>false</AllowMulticast>
+            <EnableMulticastLoopback>false</EnableMulticastLoopback>
+        </General>
+        <Discovery>
+            <!-- 
+                Unicast peer discovery for the Go2 robot.
+                The Go2 Pro main computer is at 192.168.123.161.
+                Also include localhost for local node discovery.
+            -->
+            <Peers>
+                <Peer address="192.168.123.161"/>
+                <Peer address="localhost"/>
+            </Peers>
+            <ParticipantIndex>auto</ParticipantIndex>
+            <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
+        </Discovery>
+        <Internal>
+            <Watermarks>
+                <WhcHigh>500kB</WhcHigh>
+            </Watermarks>
+            <!-- 
+                Socket buffer sizes - set to 'default' to use system defaults
+                If you increase system limits, you can set these higher for better performance
+                with large point cloud data.
+                
+                To increase system limits, run:
+                  sudo sysctl -w net.core.rmem_max=8388608
+                  sudo sysctl -w net.core.wmem_max=8388608
+            -->
+            <SocketReceiveBufferSize min="default" max="default" />
+            <SocketSendBufferSize min="default" max="default" />
+        </Internal>
+        <Tracing>
+            <!-- Set to 'fine' or 'finest' for debugging connection issues -->
+            <Verbosity>warning</Verbosity>
+            <OutputFile>stderr</OutputFile>
+        </Tracing>
+    </Domain>
+</CycloneDDS>

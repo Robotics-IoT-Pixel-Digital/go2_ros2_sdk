@@ -24,8 +24,10 @@ from ..domain.entities import RobotConfig, RobotData, CameraData
 from ..domain.interfaces import IRobotDataReceiver, IRobotController
 from ..application.services import RobotDataService, RobotControlService
 from ..infrastructure.ros2 import ROS2Publisher
-from ..infrastructure.webrtc import WebRTCAdapter
 from ..infrastructure.cyclonedds import CycloneDDSAdapter
+
+# Lazy import for WebRTCAdapter - only import when needed
+WebRTCAdapter = None
 
 logging.basicConfig(level=logging.WARN)
 logger = logging.getLogger(__name__)
@@ -58,7 +60,7 @@ class Go2DriverNode(Node):
         self.robot_data_service = RobotDataService(self.ros2_publisher)
         
         # Initialize the appropriate adapter based on connection type
-        self.robot_adapter: Union[WebRTCAdapter, CycloneDDSAdapter] = self._create_adapter()
+        self.robot_adapter = self._create_adapter()
         
         self.robot_control_service = RobotControlService(self.robot_adapter)
         
@@ -74,7 +76,7 @@ class Go2DriverNode(Node):
         # Log connection type
         self.get_logger().info(f"Using {self.config.conn_type} adapter")
 
-    def _create_adapter(self) -> Union[WebRTCAdapter, CycloneDDSAdapter]:
+    def _create_adapter(self):
         """Create the appropriate adapter based on connection type."""
         if self.config.conn_type == 'cyclonedds':
             self.get_logger().info("Initializing CycloneDDS adapter for Ethernet connection")
@@ -85,9 +87,9 @@ class Go2DriverNode(Node):
                 event_loop=self.event_loop
             )
         else:
-            # Default to WebRTC adapter
+            # Default to WebRTC adapter - lazy import to avoid requiring aiortc
             self.get_logger().info("Initializing WebRTC adapter for Wi-Fi connection")
-
+            from ..infrastructure.webrtc import WebRTCAdapter
             return WebRTCAdapter(
                 config=self.config,
                 on_validated_callback=self._on_robot_validated,

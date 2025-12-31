@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-rviz2 \
     software-properties-common \
     ros-humble-rmw-cyclonedds-cpp \
+    iproute2 \
+    iputils-ping \
     ffmpeg
 
 # Install specific numpy version first
@@ -44,6 +46,10 @@ ENV ROBOT_IP=""
 ENV CONN_TYPE="webrtc"
 ENV WEBRTC_SERVER_HOST="0.0.0.0"
 ENV WEBRTC_SERVER_PORT="9991"
+
+# CycloneDDS environment variables (set when CONN_TYPE=cyclonedds)
+# These will be overridden by the launch file when using CycloneDDS
+ENV RMW_IMPLEMENTATION="rmw_fastrtps_cpp"
 
 # Remove apt cache
 RUN rm -rf /var/lib/apt/lists/*

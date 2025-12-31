@@ -30,17 +30,26 @@ logger = logging.getLogger(__name__)
 
 
 # CycloneDDS topic names as published by Go2 robot over Ethernet
+# NOTE: Go2 uses 'rt/' prefix for internal topics when connected via Ethernet
+# These are the raw DDS topic names that the Go2 Pro publishes
 CYCLONEDDS_TOPICS = {
-    # Subscriber topics (from robot)
-    "LOW_STATE": "lowstate",
-    "SPORT_MODE_STATE": "sportmodestate",
-    "LIDAR_CLOUD": "/utlidar/cloud",
-    "ROBOT_POSE": "/utlidar/robot_pose",
-    "ODOMETRY": "/utlidar/robot_odom",
-    "IMU": "imu",
-    # Publisher topics (to robot)
-    "SPORT_MODE_CMD": "sportmodecmd",
-    "CMD_VEL": "cmd_vel",
+    # Subscriber topics (from robot) - these are published by Go2 Pro natively
+    "LOW_STATE": "rt/lf/lowstate",              # Motor states, IMU, battery
+    "SPORT_MODE_STATE": "rt/sportmodestate",    # Robot mode, gait, position
+    "LIDAR_CLOUD": "rt/utlidar/cloud",          # LiDAR point cloud
+    "ROBOT_POSE": "rt/utlidar/robot_pose",      # Robot pose from LiDAR SLAM
+    "ODOMETRY": "rt/utlidar/robot_odom",        # Odometry from LiDAR
+    "IMU": "rt/imu",                            # IMU data
+    "WIRELESS_CONTROLLER": "rt/wirelesscontroller",  # Remote controller state
+    # Publisher topics (to robot) - commands we send to the Go2 Pro
+    "SPORT_MODE_CMD": "rt/api/sport/request",   # Sport mode commands (movement, gait)
+    "CMD_VEL": "rt/go2/cmd_vel",                # Velocity commands (Twist)
+}
+
+# Alternative topic names - some Go2 firmware versions use different prefixes
+CYCLONEDDS_TOPICS_ALT = {
+    "SPORT_MODE_STATE": "rt/lf/sportmodestate",  # Alternative location
+    "IMU": "rt/lf/imu",                          # Alternative IMU topic
 }
 
 
@@ -137,29 +146,58 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
             raise
 
     def _create_subscribers(self, robot_id: str, prefix: str) -> None:
-        """Create ROS2 subscribers for robot data topics."""
+        """Create ROS2 subscribers for robot data topics.
+        
+        Note: Go2's native rt/ topics are global (no robot prefix).
+        The prefix is only used for our republished topics.
+        
+        We subscribe to both primary and alternative topic names since
+        different Go2 firmware versions may use different topic names.
+        """
+        
+        # Log the topics we're subscribing to
+        logger.info(f"Creating CycloneDDS subscribers for robot {robot_id}:")
+        logger.info(f"  Note: Go2 Pro publishes on rt/ prefixed topics over Ethernet")
 
         # LowState subscriber (motor states, IMU, foot force)
+        # NOTE: Go2's rt/ topics are global, not prefixed
+        low_state_topic = CYCLONEDDS_TOPICS['LOW_STATE']
+        logger.info(f"  - Subscribing to: {low_state_topic}")
         low_state_sub = self.node.create_subscription(
             LowState,
-            f"{prefix}{CYCLONEDDS_TOPICS['LOW_STATE']}",
+            low_state_topic,
             lambda msg, rid=robot_id: self._on_low_state(msg, rid),
-            self.qos_reliable,
+            self.qos_best_effort,  # Go2 uses best effort for high-frequency data
         )
         self.subscribers[robot_id].append(low_state_sub)
 
         # SportModeState subscriber (robot state, position, gait)
+        # Subscribe to primary topic
+        sport_state_topic = CYCLONEDDS_TOPICS['SPORT_MODE_STATE']
+        logger.info(f"  - Subscribing to: {sport_state_topic}")
         sport_state_sub = self.node.create_subscription(
             SportModeState,
-            f"{prefix}{CYCLONEDDS_TOPICS['SPORT_MODE_STATE']}",
+            sport_state_topic,
             lambda msg, rid=robot_id: self._on_sport_mode_state(msg, rid),
-            self.qos_reliable,
+            self.qos_best_effort,  # Go2 uses best effort
         )
         self.subscribers[robot_id].append(sport_state_sub)
+        
+        # Also subscribe to alternative topic name (some firmware versions)
+        sport_state_alt_topic = CYCLONEDDS_TOPICS_ALT.get('SPORT_MODE_STATE')
+        if sport_state_alt_topic and sport_state_alt_topic != sport_state_topic:
+            logger.info(f"  - Also subscribing to (alt): {sport_state_alt_topic}")
+            sport_state_alt_sub = self.node.create_subscription(
+                SportModeState,
+                sport_state_alt_topic,
+                lambda msg, rid=robot_id: self._on_sport_mode_state(msg, rid),
+                self.qos_best_effort,
+            )
+            self.subscribers[robot_id].append(sport_state_alt_sub)
 
         # LiDAR point cloud subscriber
-        # Note: LiDAR topics typically don't use robot prefix on Go2
         lidar_topic = CYCLONEDDS_TOPICS["LIDAR_CLOUD"]
+        logger.info(f"  - Subscribing to: {lidar_topic}")
         lidar_sub = self.node.create_subscription(
             PointCloud2,
             lidar_topic,
@@ -170,25 +208,27 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
 
         # Robot pose subscriber
         pose_topic = CYCLONEDDS_TOPICS["ROBOT_POSE"]
+        logger.info(f"  - Subscribing to: {pose_topic}")
         pose_sub = self.node.create_subscription(
             PoseStamped,
             pose_topic,
             lambda msg, rid=robot_id: self._on_robot_pose(msg, rid),
-            self.qos_reliable,
+            self.qos_best_effort,
         )
         self.subscribers[robot_id].append(pose_sub)
 
         # Odometry subscriber
         odom_topic = CYCLONEDDS_TOPICS["ODOMETRY"]
+        logger.info(f"  - Subscribing to: {odom_topic}")
         odom_sub = self.node.create_subscription(
             Odometry,
             odom_topic,
             lambda msg, rid=robot_id: self._on_odometry(msg, rid),
-            self.qos_reliable,
+            self.qos_best_effort,
         )
         self.subscribers[robot_id].append(odom_sub)
 
-        logger.debug(
+        logger.info(
             f"Created {len(self.subscribers[robot_id])} subscribers for robot {robot_id}"
         )
 
