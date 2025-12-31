@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from abc import ABC, abstractmethod
+from typing import Dict, Any
 from ..entities.robot_data import RobotData
 
 
@@ -36,4 +37,9 @@ class IRobotDataPublisher(ABC):
     @abstractmethod
     def publish_voxel_data(self, robot_data: RobotData) -> None:
         """Publish voxel map data"""
+        pass
+
+    @abstractmethod
+    def publish_pointcloud2_passthrough(self, msg: Dict[str, Any], robot_id: str) -> None:
+        """Publish raw PointCloud2 message (for CycloneDDS passthrough)"""
         pass 

@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import logging
+from typing import Dict, Any
 
 from rclpy.node import Node
 from tf2_ros import TransformBroadcaster
@@ -265,4 +266,30 @@ class ROS2Publisher(IRobotDataPublisher):
             self.publishers['voxel'][robot_idx].publish(voxel_msg)
 
         except Exception as e:
-            logger.error(f"Error publishing voxel data: {e}") 
+            logger.error(f"Error publishing voxel data: {e}")
+
+    def publish_pointcloud2_passthrough(self, msg: Dict[str, Any], robot_id: str) -> None:
+        """
+        Publish raw PointCloud2 message (for CycloneDDS passthrough).
+        
+        When using CycloneDDS, the robot already publishes PointCloud2 messages.
+        This method republishes them to the SDK's expected topic names.
+        """
+        try:
+            robot_idx = int(robot_id)
+            pointcloud_msg = msg.get('pointcloud2_msg')
+            
+            if pointcloud_msg is None:
+                return
+            
+            # Update the frame_id to match the SDK conventions
+            if self.config.conn_mode == 'single':
+                pointcloud_msg.header.frame_id = 'odom'
+            else:
+                pointcloud_msg.header.frame_id = f'robot{robot_id}/odom'
+            
+            # Republish to the SDK topic
+            self.publishers['lidar'][robot_idx].publish(pointcloud_msg)
+            
+        except Exception as e:
+            logger.error(f"Error publishing passthrough pointcloud: {e}") 

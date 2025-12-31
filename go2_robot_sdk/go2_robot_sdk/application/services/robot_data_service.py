@@ -19,7 +19,7 @@ class RobotDataService:
         self.publisher = publisher
 
     def process_webrtc_message(self, msg: Dict[str, Any], robot_id: str) -> None:
-        """Process WebRTC message"""
+        """Process data message from WebRTC or CycloneDDS adapter"""
         try:
             topic = msg.get('topic')
             robot_data = RobotData(robot_id=robot_id, timestamp=0.0)
@@ -40,9 +40,24 @@ class RobotDataService:
             elif topic == RTC_TOPIC["LOW_STATE"]:
                 self._process_low_state(msg, robot_data)
                 self.publisher.publish_joint_state(robot_data)
+            
+            # Handle CycloneDDS-specific topics
+            elif topic == 'cyclonedds/lidar_cloud':
+                # Pass-through for PointCloud2 from CycloneDDS
+                self.publisher.publish_pointcloud2_passthrough(msg, robot_id)
+            
+            elif topic == 'rt/lf/lowstate':
+                # CycloneDDS LowState message
+                self._process_low_state(msg, robot_data)
+                self.publisher.publish_joint_state(robot_data)
+            
+            elif topic == 'rt/lf/sportmodestate':
+                # CycloneDDS SportModeState message
+                self._process_sport_mode_state(msg, robot_data)
+                self.publisher.publish_robot_state(robot_data)
 
         except Exception as e:
-            logger.error(f"Error processing WebRTC message: {e}")
+            logger.error(f"Error processing message: {e}")
 
     def _process_lidar_data(self, msg: Dict[str, Any], robot_data: RobotData) -> None:
         """Process lidar data"""

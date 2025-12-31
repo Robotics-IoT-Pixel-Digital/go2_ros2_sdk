@@ -4,9 +4,8 @@
 import asyncio
 import logging
 import os
-from typing import Dict, Any
+from typing import Dict, Any, Union
 
-from aiortc import MediaStreamTrack
 from cv_bridge import CvBridge
 
 from rclpy.node import Node
@@ -22,9 +21,11 @@ from sensor_msgs.msg import PointCloud2, JointState, Joy, Image, CameraInfo
 from nav_msgs.msg import Odometry
 
 from ..domain.entities import RobotConfig, RobotData, CameraData
+from ..domain.interfaces import IRobotDataReceiver, IRobotController
 from ..application.services import RobotDataService, RobotControlService
 from ..infrastructure.ros2 import ROS2Publisher
 from ..infrastructure.webrtc import WebRTCAdapter
+from ..infrastructure.cyclonedds import CycloneDDSAdapter
 
 logging.basicConfig(level=logging.WARN)
 logger = logging.getLogger(__name__)
@@ -56,23 +57,43 @@ class Go2DriverNode(Node):
         
         self.robot_data_service = RobotDataService(self.ros2_publisher)
         
-        self.webrtc_adapter = WebRTCAdapter(
-            config=self.config,
-            on_validated_callback=self._on_robot_validated,
-            on_video_frame_callback=self._on_video_frame if self.config.enable_video else None,
-            event_loop=self.event_loop
-        )
+        # Initialize the appropriate adapter based on connection type
+        self.robot_adapter: Union[WebRTCAdapter, CycloneDDSAdapter] = self._create_adapter()
         
-        self.robot_control_service = RobotControlService(self.webrtc_adapter)
+        self.robot_control_service = RobotControlService(self.robot_adapter)
         
         # Set callback for data
-        self.webrtc_adapter.set_data_callback(self._on_robot_data_received)
+        self.robot_adapter.set_data_callback(self._on_robot_data_received)
         
         # Subscribers initialization
         self._setup_subscribers()
         
         # State
         self.joy_state = Joy()
+        
+        # Log connection type
+        self.get_logger().info(f"Using {self.config.conn_type} adapter")
+
+    def _create_adapter(self) -> Union[WebRTCAdapter, CycloneDDSAdapter]:
+        """Create the appropriate adapter based on connection type."""
+        if self.config.conn_type == 'cyclonedds':
+            self.get_logger().info("Initializing CycloneDDS adapter for Ethernet connection")
+            return CycloneDDSAdapter(
+                node=self,
+                config=self.config,
+                on_validated_callback=self._on_robot_validated,
+                event_loop=self.event_loop
+            )
+        else:
+            # Default to WebRTC adapter
+            self.get_logger().info("Initializing WebRTC adapter for Wi-Fi connection")
+
+            return WebRTCAdapter(
+                config=self.config,
+                on_validated_callback=self._on_robot_validated,
+                on_video_frame_callback=self._on_video_frame if self.config.enable_video else None,
+                event_loop=self.event_loop
+            )
 
     def _setup_configuration(self) -> RobotConfig:
         """Configuration setup"""
@@ -218,17 +239,7 @@ class Go2DriverNode(Node):
         # Joystick subscriber
         self.create_subscription(Joy, 'joy', self._on_joy, qos_profile)
 
-        # CycloneDDS support
-        if self.config.conn_type == 'cyclonedds':
-            self.create_subscription(
-                LowState, 'lowstate',
-                self._on_cyclonedds_low_state, qos_profile)
-            self.create_subscription(
-                PoseStamped, '/utlidar/robot_pose',
-                self._on_cyclonedds_pose, qos_profile)
-            self.create_subscription(
-                PointCloud2, '/utlidar/cloud',
-                self._on_cyclonedds_lidar, qos_profile)
+        # Note: CycloneDDS subscriptions are now handled by CycloneDDSAdapter
 
     def _on_set_parameters(self, params) -> SetParametersResult:
         """Callback for parameter changes"""
@@ -283,8 +294,8 @@ class Go2DriverNode(Node):
         """Callback for receiving data from robot"""
         self.robot_data_service.process_webrtc_message(msg, robot_id)
 
-    async def _on_video_frame(self, track: MediaStreamTrack, robot_id: str) -> None:
-        """Callback for processing video frames"""
+    async def _on_video_frame(self, track, robot_id: str) -> None:
+        """Callback for processing video frames (WebRTC only)"""
         logger.info(f"Video frame received for robot {robot_id}")
 
         while True:
@@ -327,18 +338,18 @@ class Go2DriverNode(Node):
 
     def _on_cyclonedds_lidar(self, msg: PointCloud2) -> None:
         """Processing lidar for CycloneDDS"""
-        # You can add processing for CycloneDDS here if needed
+        # Handled by CycloneDDSAdapter subscriptions
         pass
 
     async def connect_robots(self) -> None:
-        """Connect to robots"""
-        if self.config.conn_type == 'webrtc':
-            for i, robot_ip in enumerate(self.config.robot_ip_list):
-                try:
-                    await self.webrtc_adapter.connect(str(i))
-                except Exception as e:
-                    self.get_logger().error(f"Failed to connect to robot {i}: {e}")
-                    raise
+        """Connect to robots using the configured adapter."""
+        for i, robot_ip in enumerate(self.config.robot_ip_list):
+            try:
+                self.get_logger().info(f"Connecting to robot {i} ({robot_ip}) via {self.config.conn_type}")
+                await self.robot_adapter.connect(str(i))
+            except Exception as e:
+                self.get_logger().error(f"Failed to connect to robot {i}: {e}")
+                raise
 
     async def run_robot_control_loop(self, robot_id: str) -> None:
         """Main robot control loop"""
@@ -350,8 +361,8 @@ class Go2DriverNode(Node):
                         self.joy_state.buttons, robot_id
                     )
 
-                # Process WebRTC commands
-                self.webrtc_adapter.process_webrtc_commands(robot_id)
+                # Process queued commands (WebRTC specific, no-op for CycloneDDS)
+                self.robot_adapter.process_webrtc_commands(robot_id)
                 
                 await asyncio.sleep(0.1)
                 
