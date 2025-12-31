@@ -55,6 +55,11 @@ class RobotDataService:
                 # CycloneDDS SportModeState message
                 self._process_sport_mode_state(msg, robot_data)
                 self.publisher.publish_robot_state(robot_data)
+            
+            elif topic == 'rt/utlidar/robot_pose':
+                # CycloneDDS robot pose/odometry message
+                self._process_odometry_data(msg, robot_data)
+                self.publisher.publish_odometry(robot_data)
 
         except Exception as e:
             logger.error(f"Error processing message: {e}")
