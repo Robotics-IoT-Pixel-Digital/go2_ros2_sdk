@@ -153,7 +153,7 @@ class ROS2Publisher(IRobotDataPublisher):
             go2_state = Go2State()
             state = robot_data.robot_state
             go2_state.mode = state.mode
-            go2_state.progress = state.progress
+            go2_state.progress = int(state.progress)  # Convert float to int
             go2_state.gait_type = state.gait_type
             go2_state.position = list(map(float, state.position))
             go2_state.body_height = float(state.body_height)

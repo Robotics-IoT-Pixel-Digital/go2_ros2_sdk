@@ -2,8 +2,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """
-CycloneDDS infrastructure adapters for Ethernet connection
+CycloneDDS infrastructure adapters for Ethernet connection.
+
+FIXED: Now includes DDSBridge for raw DDS topic subscriptions.
 """
 from .cyclonedds_adapter import CycloneDDSAdapter
+from .dds_bridge import DDSBridge
 
-__all__ = ['CycloneDDSAdapter']
+__all__ = ['CycloneDDSAdapter', 'DDSBridge']

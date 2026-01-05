@@ -29,7 +29,10 @@ setup(
 
 
     ],
-    install_requires=['setuptools'],
+    install_requires=[
+        'setuptools',
+        'cyclonedds>=0.10.0',  # Required for raw DDS bridge
+    ],
     zip_safe=True,
     maintainer='brimo',
     maintainer_email='abizov94@gmail.com',

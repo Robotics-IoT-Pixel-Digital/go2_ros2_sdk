@@ -113,6 +113,13 @@ class Go2NodeFactory:
                     }],
                     arguments=[self.config.config_paths['urdf']]
                 ),
+                # Static transform for LiDAR frame (cyclonedds mode publishes in utlidar_lidar frame)
+                Node(
+                    package='tf2_ros',
+                    executable='static_transform_publisher',
+                    name='utlidar_lidar_tf',
+                    arguments=['0', '0', '0', '0', '0', '0', 'radar', 'utlidar_lidar']
+                ),
                 self._create_pointcloud_to_laserscan_node()
             ])
         else:
@@ -165,17 +172,38 @@ class Go2NodeFactory:
             )
         else:
             # Single robot setup
+            # In CycloneDDS mode, subscribe to robot's native /utlidar/cloud
+            # In WebRTC mode, subscribe to driver's /point_cloud2
+            cloud_topic = '/utlidar/cloud' if self.config.conn_type == 'cyclonedds' else 'point_cloud2'
+            
             return Node(
                 package='pointcloud_to_laserscan',
                 executable='pointcloud_to_laserscan_node',
                 name='go2_pointcloud_to_laserscan',
                 remappings=[
-                    ('cloud_in', 'point_cloud2'),
+                    ('cloud_in', cloud_topic),
                     ('scan', 'scan'),
                 ],
                 parameters=[{
                     'target_frame': 'base_link',
-                    'max_height': 0.5
+                    'min_height': -0.3,     # Below LiDAR (ground and low obstacles)
+                    'max_height': 0.5,      # Above LiDAR (walls, furniture)
+                    'angle_min': -3.14159,  # Full 360 degrees
+                    'angle_max': 3.14159,
+                    'angle_increment': 0.0087,  # ~720 points
+                    'scan_time': 0.1,
+                    'range_min': 0.1,
+                    'range_max': 20.0,
+                    'use_inf': True,
+                    'inf_epsilon': 1.0,
+                    'qos_overrides': {
+                        '/scan': {
+                            'reliability': 'reliable',
+                            'durability': 'volatile',
+                            'history': 'keep_last',
+                            'depth': 10
+                        }
+                    }
                 }],
                 output='screen',
             )
@@ -186,7 +214,7 @@ class Go2NodeFactory:
         # Note: CycloneDDS config is handled via CYCLONEDDS_URI env var if needed
         # The default FastDDS should work with mirrored WSL networking
         
-        return [
+        nodes = [
             # Main robot driver (clean architecture)
             Node(
                 package='go2_robot_sdk',
@@ -196,49 +224,62 @@ class Go2NodeFactory:
                 parameters=[{
                     'robot_ip': self.config.robot_ip,
                     'token': self.config.robot_token,
-                    'conn_type': self.config.conn_type
-                }],
-            ),
-            # LiDAR processing node (new separate package)
-            Node(
-                package='lidar_processor',
-                executable='lidar_to_pointcloud',
-                name='lidar_to_pointcloud',
-                parameters=[{
-                    'robot_ip_lst': self.config.robot_ip_list,
-                    'map_name': self.config.map_name,
-                    'map_save': self.config.save_map
-                }],
-            ),
-            # Advanced point cloud aggregator
-            Node(
-                package='lidar_processor',
-                executable='pointcloud_aggregator',
-                name='pointcloud_aggregator',
-                parameters=[{
-                    'max_range': 20.0,
-                    'min_range': 0.1,
-                    'height_filter_min': -2.0,
-                    'height_filter_max': 3.0,
-                    'downsample_rate': 5,
-                    'publish_rate': 10.0
-                }],
-            ),
-            # TTS Node (new separate package)
-            Node(
-                package='speech_processor',
-                executable='tts_node',
-                name='tts_node',
-                parameters=[{
-                    'api_key': os.getenv('ELEVENLABS_API_KEY', ''),
-                    'provider': 'elevenlabs',
-                    'voice_name': 'XrExE9yKIg1WjnnlVkGX',
-                    'local_playback': False,
-                    'use_cache': True,
-                    'audio_quality': 'standard'
+                    'conn_type': self.config.conn_type,
+                    'enable_video': False,
                 }],
             ),
         ]
+        
+        # Only add LiDAR processor nodes if not using cyclonedds
+        # In CycloneDDS mode, the robot publishes LiDAR data directly on:
+        #   /utlidar/cloud (PointCloud2) - raw point cloud from LiDAR
+        #   /utlidar/robot_pose (PoseStamped) - robot pose from SLAM
+        #   /utlidar/robot_odom (Odometry) - odometry from LiDAR
+        # Subscribe to these topics directly or remap them as needed
+        if self.config.conn_type != 'cyclonedds':
+            nodes.extend([
+                # LiDAR processing node (new separate package)
+                Node(
+                    package='lidar_processor',
+                    executable='lidar_to_pointcloud',
+                    name='lidar_to_pointcloud',
+                    parameters=[{
+                        'robot_ip_lst': self.config.robot_ip_list,
+                        'map_name': self.config.map_name,
+                        'map_save': self.config.save_map
+                    }],
+                ),
+                # Advanced point cloud aggregator
+                Node(
+                    package='lidar_processor',
+                    executable='pointcloud_aggregator',
+                    name='pointcloud_aggregator',
+                    parameters=[{
+                        'max_range': 20.0,
+                        'min_range': 0.1,
+                        'height_filter_min': -2.0,
+                        'height_filter_max': 3.0,
+                        'downsample_rate': 5,
+                        'publish_rate': 10.0
+                    }],
+                ),
+                # TTS Node (new separate package)
+                Node(
+                    package='speech_processor',
+                    executable='tts_node',
+                    name='tts_node',
+                    parameters=[{
+                        'api_key': os.getenv('ELEVENLABS_API_KEY', ''),
+                        'provider': 'elevenlabs',
+                        'voice_name': 'XrExE9yKIg1WjnnlVkGX',
+                        'local_playback': False,
+                        'use_cache': True,
+                        'audio_quality': 'standard'
+                    }],
+                ),
+            ])
+        
+        return nodes
     
     def create_teleop_nodes(self) -> List[Node]:
         """Create teleoperation and joystick nodes"""
@@ -295,7 +336,7 @@ class Go2NodeFactory:
     def create_include_launches(self) -> List[IncludeLaunchDescription]:
         """Create included launch descriptions"""
         use_sim_time = LaunchConfiguration('use_sim_time', default='false')
-        with_foxglove = LaunchConfiguration('foxglove', default='true')
+        with_foxglove = LaunchConfiguration('foxglove', default='false')
         with_slam = LaunchConfiguration('slam', default='true')
         with_nav2 = LaunchConfiguration('nav2', default='true')
         

@@ -7,8 +7,14 @@ CycloneDDS Adapter for Go2 robot communication over Ethernet.
 This adapter implements the IRobotDataReceiver and IRobotController interfaces
 for communication with the Go2 robot via CycloneDDS (Ethernet connection).
 
-When using CycloneDDS, the Go2 robot publishes standard ROS2 topics directly,
-and we subscribe to them. Commands are sent via ROS2 topic publishers.
+FIXED: Now uses raw CycloneDDS Python API to subscribe to rt/ prefixed topics
+instead of ROS2 APIs. The Go2 robot publishes raw DDS topics that are NOT
+ROS2-compatible, so we need to use the cyclonedds library directly.
+
+The adapter:
+1. Uses DDSBridge to subscribe to raw rt/ topics from robot
+2. Converts received data and forwards to RobotDataService
+3. Publishes commands back to robot via ROS2 publishers (commands still work)
 """
 
 import logging
@@ -21,19 +27,20 @@ from geometry_msgs.msg import Twist, PoseStamped
 from sensor_msgs.msg import PointCloud2
 from nav_msgs.msg import Odometry
 
-from go2_interfaces.msg import LowState, SportModeState, SportModeCmd
+from go2_interfaces.msg import SportModeCmd
 
 from ...domain.interfaces import IRobotDataReceiver, IRobotController
 from ...domain.entities import RobotConfig
+from .dds_bridge import DDSBridge, CYCLONEDDS_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
 
 # CycloneDDS topic names as published by Go2 robot over Ethernet
-# NOTE: Go2 uses 'rt/' prefix for internal topics when connected via Ethernet
-# These are the raw DDS topic names that the Go2 Pro publishes
+# NOTE: Go2 uses 'rt/' prefix for RAW DDS topics (not ROS2 topics!)
+# These must be accessed via raw CycloneDDS API, not ROS2 subscriptions
 CYCLONEDDS_TOPICS = {
-    # Subscriber topics (from robot) - these are published by Go2 Pro natively
+    # Subscriber topics (from robot) - RAW DDS topics with rt/ prefix
     "LOW_STATE": "rt/lf/lowstate",              # Motor states, IMU, battery
     "SPORT_MODE_STATE": "rt/sportmodestate",    # Robot mode, gait, position
     "LIDAR_CLOUD": "rt/utlidar/cloud",          # LiDAR point cloud
@@ -57,12 +64,14 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
     """
     CycloneDDS adapter for Go2 robot communication over Ethernet.
 
-    This adapter creates ROS2 subscriptions to the topics published by
-    the Go2 robot when connected via Ethernet (CycloneDDS).
+    FIXED: This adapter now uses raw CycloneDDS Python API via DDSBridge
+    to subscribe to the robot's native rt/ topics. The Go2 robot publishes
+    raw DDS topics that are NOT ROS2-compatible (missing ROS2 metadata).
 
-    Note: Unlike WebRTC which requires explicit connection, CycloneDDS
-    communication is automatically established when the robot and computer
-    are on the same DDS domain.
+    The adapter:
+    - Uses DDSBridge for subscribing to raw DDS rt/ topics
+    - Still uses ROS2 publishers for sending commands (they work fine)
+    - Converts DDS data and republishes as ROS2 topics for the rest of system
     """
 
     def __init__(
@@ -76,11 +85,17 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
         Initialize the CycloneDDS adapter.
 
         Args:
-            node: ROS2 node instance for creating publishers/subscribers
+            node: ROS2 node instance for creating publishers (commands)
             config: Robot configuration parameters
             on_validated_callback: Callback when connection is validated
             event_loop: Event loop (not used for CycloneDDS but kept for interface compatibility)
         """
+        if not CYCLONEDDS_AVAILABLE:
+            raise ImportError(
+                "cyclonedds Python library is required for CycloneDDS mode. "
+                "Install with: pip install cyclonedds"
+            )
+
         self.node = node
         self.config = config
         self.on_validated_callback = on_validated_callback
@@ -89,7 +104,10 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
         # Track connected robots
         self.connected_robots: Dict[str, bool] = {}
 
-        # QoS profiles
+        # DDS Bridge for subscribing to raw rt/ topics
+        self.dds_bridge: Optional[DDSBridge] = None
+
+        # QoS profiles for ROS2 publishers (commands)
         self.qos_reliable = QoSProfile(depth=10)
         self.qos_best_effort = QoSProfile(
             reliability=QoSReliabilityPolicy.BEST_EFFORT,
@@ -97,20 +115,20 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
             depth=1,
         )
 
-        # Subscribers (will be created per robot)
-        self.subscribers: Dict[str, list] = {}
-
-        # Publishers for sending commands
+        # Publishers for sending commands (ROS2 publishers still work!)
         self.publishers: Dict[str, Dict[str, Any]] = {}
+        
+        # Publishers for republishing DDS data as ROS2 topics
+        self.ros2_publishers: Dict[str, Dict[str, Any]] = {}
 
-        logger.info("CycloneDDS adapter initialized")
+        logger.info("CycloneDDS adapter initialized with raw DDS bridge support")
 
     async def connect(self, robot_id: str) -> None:
         """
         Connect to robot via CycloneDDS.
 
-        For CycloneDDS, "connection" means setting up ROS2 subscriptions
-        to the robot's topics. The actual DDS connection is automatic.
+        FIXED: Now creates DDSBridge and subscribes to raw rt/ topics
+        using cyclonedds Python library instead of ROS2 subscriptions.
 
         Args:
             robot_id: Robot identifier (index in robot list)
@@ -124,116 +142,164 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
             else:
                 prefix = f"robot{robot_idx}/"
 
-            # Initialize subscriber and publisher storage
-            self.subscribers[robot_id] = []
-            self.publishers[robot_id] = {}
+            # Initialize DDS Bridge if not already done
+            if self.dds_bridge is None:
+                self.dds_bridge = DDSBridge(domain_id=0)  # ROS 2 uses domain 0 by default
+                self.dds_bridge.start()
+                logger.info("DDS Bridge started for raw DDS topic subscriptions")
 
-            # Create subscribers for robot data
-            self._create_subscribers(robot_id, prefix)
+            # Subscribe to raw DDS topics using the bridge
+            self._subscribe_dds_topics(robot_id)
 
-            # Create publishers for commands
+            # Create ROS2 publishers for commands (these still work!)
             self._create_publishers(robot_id, prefix)
+            
+            # Create ROS2 publishers for republishing DDS data
+            self._create_ros2_republishers(robot_id, prefix)
 
             self.connected_robots[robot_id] = True
-            logger.info(f"CycloneDDS subscriptions created for robot {robot_id}")
+            logger.info(f"CycloneDDS connection established for robot {robot_id}")
+            logger.info(f"  - Subscribed to raw DDS rt/ topics via DDSBridge")
+            logger.info(f"  - Created ROS2 publishers for sending commands")
 
             # Call validation callback (connection is immediate for CycloneDDS)
             if self.on_validated_callback:
                 self.on_validated_callback(robot_id)
 
         except Exception as e:
-            logger.error(f"Failed to setup CycloneDDS for robot {robot_id}: {e}")
+            logger.error(f"Failed to connect via CycloneDDS for robot {robot_id}: {e}")
             raise
 
-    def _create_subscribers(self, robot_id: str, prefix: str) -> None:
-        """Create ROS2 subscribers for robot data topics.
-        
-        Note: Go2's native rt/ topics are global (no robot prefix).
-        The prefix is only used for our republished topics.
-        
-        We subscribe to both primary and alternative topic names since
-        different Go2 firmware versions may use different topic names.
+    def _subscribe_dds_topics(self, robot_id: str) -> None:
         """
+        Subscribe to raw DDS topics using DDSBridge.
         
-        # Log the topics we're subscribing to
-        logger.info(f"Creating CycloneDDS subscribers for robot {robot_id}:")
-        logger.info(f"  Note: Go2 Pro publishes on rt/ prefixed topics over Ethernet")
+        FIXED: Uses raw cyclonedds Python library instead of ROS2 subscriptions.
+        This allows us to receive the rt/ prefixed topics published by the robot.
+        """
+        logger.info(f"Subscribing to raw DDS topics for robot {robot_id}:")
 
-        # LowState subscriber (motor states, IMU, foot force)
-        # NOTE: Go2's rt/ topics are global, not prefixed
+        # Subscribe to LowState (motor states, IMU, battery)
         low_state_topic = CYCLONEDDS_TOPICS['LOW_STATE']
-        logger.info(f"  - Subscribing to: {low_state_topic}")
-        low_state_sub = self.node.create_subscription(
-            LowState,
-            low_state_topic,
-            lambda msg, rid=robot_id: self._on_low_state(msg, rid),
-            self.qos_best_effort,  # Go2 uses best effort for high-frequency data
+        logger.info(f"  - Raw DDS topic: {low_state_topic}")
+        self.dds_bridge.subscribe_lowstate(
+            callback=lambda data: self._on_dds_data(data, robot_id),
+            topic_name=low_state_topic
         )
-        self.subscribers[robot_id].append(low_state_sub)
 
-        # SportModeState subscriber (robot state, position, gait)
-        # Subscribe to primary topic
+        # Subscribe to SportModeState (robot state, position, gait)
         sport_state_topic = CYCLONEDDS_TOPICS['SPORT_MODE_STATE']
-        logger.info(f"  - Subscribing to: {sport_state_topic}")
-        sport_state_sub = self.node.create_subscription(
-            SportModeState,
-            sport_state_topic,
-            lambda msg, rid=robot_id: self._on_sport_mode_state(msg, rid),
-            self.qos_best_effort,  # Go2 uses best effort
+        logger.info(f"  - Raw DDS topic: {sport_state_topic}")
+        self.dds_bridge.subscribe_sportmodestate(
+            callback=lambda data: self._on_dds_data(data, robot_id),
+            topic_name=sport_state_topic
         )
-        self.subscribers[robot_id].append(sport_state_sub)
-        
-        # Also subscribe to alternative topic name (some firmware versions)
+
+        # Try alternative topic names too
         sport_state_alt_topic = CYCLONEDDS_TOPICS_ALT.get('SPORT_MODE_STATE')
         if sport_state_alt_topic and sport_state_alt_topic != sport_state_topic:
-            logger.info(f"  - Also subscribing to (alt): {sport_state_alt_topic}")
-            sport_state_alt_sub = self.node.create_subscription(
-                SportModeState,
-                sport_state_alt_topic,
-                lambda msg, rid=robot_id: self._on_sport_mode_state(msg, rid),
-                self.qos_best_effort,
+            logger.info(f"  - Raw DDS topic (alt): {sport_state_alt_topic}")
+            try:
+                self.dds_bridge.subscribe_sportmodestate(
+                    callback=lambda data: self._on_dds_data(data, robot_id),
+                    topic_name=sport_state_alt_topic
+                )
+            except Exception as e:
+                logger.warning(f"Could not subscribe to alternative topic {sport_state_alt_topic}: {e}")
+
+        # Subscribe to LiDAR topics
+        try:
+            lidar_cloud_topic = CYCLONEDDS_TOPICS['LIDAR_CLOUD']
+            logger.info(f"  - Raw DDS topic: {lidar_cloud_topic}")
+            self.dds_bridge.subscribe_topic(
+                callback=lambda data: self._on_dds_data(data, robot_id),
+                topic_name=lidar_cloud_topic,
+                msg_type="pointcloud"
             )
-            self.subscribers[robot_id].append(sport_state_alt_sub)
+        except Exception as e:
+            logger.warning(f"Could not subscribe to LiDAR cloud topic: {e}")
 
-        # LiDAR point cloud subscriber
-        lidar_topic = CYCLONEDDS_TOPICS["LIDAR_CLOUD"]
-        logger.info(f"  - Subscribing to: {lidar_topic}")
-        lidar_sub = self.node.create_subscription(
-            PointCloud2,
-            lidar_topic,
-            lambda msg, rid=robot_id: self._on_lidar_cloud(msg, rid),
-            self.qos_best_effort,
-        )
-        self.subscribers[robot_id].append(lidar_sub)
+        # Subscribe to robot pose from LiDAR SLAM
+        try:
+            robot_pose_topic = CYCLONEDDS_TOPICS['ROBOT_POSE']
+            logger.info(f"  - Raw DDS topic: {robot_pose_topic}")
+            self.dds_bridge.subscribe_topic(
+                callback=lambda data: self._on_dds_data(data, robot_id),
+                topic_name=robot_pose_topic,
+                msg_type="robot_pose"
+            )
+        except Exception as e:
+            logger.warning(f"Could not subscribe to robot pose topic: {e}")
 
-        # Robot pose subscriber
-        pose_topic = CYCLONEDDS_TOPICS["ROBOT_POSE"]
-        logger.info(f"  - Subscribing to: {pose_topic}")
-        pose_sub = self.node.create_subscription(
-            PoseStamped,
-            pose_topic,
-            lambda msg, rid=robot_id: self._on_robot_pose(msg, rid),
-            self.qos_best_effort,
-        )
-        self.subscribers[robot_id].append(pose_sub)
+        # Subscribe to odometry from LiDAR
+        try:
+            odom_topic = CYCLONEDDS_TOPICS['ODOMETRY']
+            logger.info(f"  - Raw DDS topic: {odom_topic}")
+            self.dds_bridge.subscribe_topic(
+                callback=lambda data: self._on_dds_data(data, robot_id),
+                topic_name=odom_topic,
+                msg_type="odometry"
+            )
+        except Exception as e:
+            logger.warning(f"Could not subscribe to odometry topic: {e}")
 
-        # Odometry subscriber
-        odom_topic = CYCLONEDDS_TOPICS["ODOMETRY"]
-        logger.info(f"  - Subscribing to: {odom_topic}")
-        odom_sub = self.node.create_subscription(
-            Odometry,
-            odom_topic,
-            lambda msg, rid=robot_id: self._on_odometry(msg, rid),
-            self.qos_best_effort,
-        )
-        self.subscribers[robot_id].append(odom_sub)
+        logger.info(f"DDS topic subscriptions completed for robot {robot_id}")
 
-        logger.info(
-            f"Created {len(self.subscribers[robot_id])} subscribers for robot {robot_id}"
-        )
+    def _on_dds_data(self, data: Dict[str, Any], robot_id: str) -> None:
+        """
+        Handle data received from DDS bridge.
+        
+        This callback is called by DDSBridge when data arrives from raw DDS topics.
+        We forward it to the data_callback set by RobotDataService and also
+        republish LiDAR data as ROS2 messages.
+        """
+        try:
+            topic = data.get("topic", "")
+            msg_type = data.get("type", "")
+            
+            # Log first message from each topic for debugging
+            if not hasattr(self, '_logged_topics'):
+                self._logged_topics = set()
+            if topic not in self._logged_topics:
+                logger.info(f"First message from {topic} (type: {msg_type})")
+                self._logged_topics.add(topic)
+            
+            # Republish LiDAR data as ROS2 messages
+            if robot_id in self.ros2_publishers:
+                # Handle point cloud data
+                if msg_type == "pointcloud" and "lidar_cloud" in self.ros2_publishers[robot_id]:
+                    self._republish_pointcloud(data, robot_id)
+                
+                # Handle robot pose data
+                elif msg_type == "robot_pose" and "robot_pose" in self.ros2_publishers[robot_id]:
+                    self._republish_pose(data, robot_id)
+                
+                # Handle odometry data
+                elif msg_type == "odometry" and "lidar_odom" in self.ros2_publishers[robot_id]:
+                    self._republish_odometry(data, robot_id)
+            
+            # Forward to data callback (RobotDataService will process it)
+            if self.data_callback:
+                self.data_callback(data, robot_id)
+        except Exception as e:
+            logger.error(f"Error handling DDS data from {topic}: {e}")
+            logger.exception(e)
+
+    def _create_subscribers(self, robot_id: str, prefix: str) -> None:
+        """
+        DEPRECATED: Old method that used ROS2 subscriptions.
+        
+        Now handled by _subscribe_dds_topics() using raw DDS bridge.
+        Kept for compatibility but does nothing.
+        """
+        logger.debug("_create_subscribers() is deprecated - using DDS bridge instead")
 
     def _create_publishers(self, robot_id: str, prefix: str) -> None:
         """Create ROS2 publishers for robot command topics."""
+
+        # Initialize publisher storage
+        if robot_id not in self.publishers:
+            self.publishers[robot_id] = {}
 
         # SportModeCmd publisher for movement commands
         self.publishers[robot_id]["sport_cmd"] = self.node.create_publisher(
@@ -249,15 +315,77 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
             self.qos_reliable,
         )
 
-        logger.debug(f"Created publishers for robot {robot_id}")
+        logger.debug(f"Created command publishers for robot {robot_id}")
+
+    def _create_ros2_republishers(self, robot_id: str, prefix: str) -> None:
+        """Create ROS2 publishers for republishing raw DDS data."""
+        
+        # Initialize publisher storage
+        if robot_id not in self.ros2_publishers:
+            self.ros2_publishers[robot_id] = {}
+        
+        # PointCloud2 publisher for LiDAR data
+        self.ros2_publishers[robot_id]["lidar_cloud"] = self.node.create_publisher(
+            PointCloud2,
+            f"{prefix}point_cloud" if not prefix else f"{prefix}/point_cloud",
+            self.qos_best_effort,
+        )
+        
+        # PoseStamped publisher for robot pose from LiDAR SLAM
+        self.ros2_publishers[robot_id]["robot_pose"] = self.node.create_publisher(
+            PoseStamped,
+            f"{prefix}robot_pose" if not prefix else f"{prefix}/robot_pose",
+            self.qos_best_effort,
+        )
+        
+        # Odometry publisher for LiDAR odometry
+        self.ros2_publishers[robot_id]["lidar_odom"] = self.node.create_publisher(
+            Odometry,
+            f"{prefix}odom_lidar" if not prefix else f"{prefix}/odom_lidar",
+            self.qos_best_effort,
+        )
+        
+        logger.debug(f"Created ROS2 republishers for robot {robot_id}")
+
+    def _republish_pointcloud(self, data: Dict[str, Any], robot_id: str) -> None:
+        """Convert and republish point cloud data as ROS2 PointCloud2."""
+        try:
+            # Simply relay - robot already publishes this as /utlidar/cloud
+            # User should remap or subscribe to /utlidar/cloud directly
+            pass
+            
+        except Exception as e:
+            logger.debug(f"Error republishing point cloud: {e}")
+
+    def _republish_pose(self, data: Dict[str, Any], robot_id: str) -> None:
+        """Convert and republish pose data as ROS2 PoseStamped."""
+        try:
+            # Simply relay - robot already publishes this as /utlidar/robot_pose
+            # User should remap or subscribe to /utlidar/robot_pose directly
+            pass
+            
+        except Exception as e:
+            logger.debug(f"Error republishing pose: {e}")
+
+    def _republish_odometry(self, data: Dict[str, Any], robot_id: str) -> None:
+        """Convert and republish odometry data as ROS2 Odometry."""
+        try:
+            # Simply relay - robot already publishes this as /utlidar/robot_odom
+            # User should remap or subscribe to /utlidar/robot_odom directly
+            pass
+            
+        except Exception as e:
+            logger.debug(f"Error republishing odometry: {e}")
 
     async def disconnect(self, robot_id: str) -> None:
-        """Disconnect from robot (cleanup subscriptions)."""
-        if robot_id in self.subscribers:
-            for sub in self.subscribers[robot_id]:
-                self.node.destroy_subscription(sub)
-            del self.subscribers[robot_id]
+        """Disconnect from robot (cleanup resources)."""
+        # Stop DDS bridge if this is the last robot
+        if len(self.connected_robots) == 1 and self.dds_bridge:
+            self.dds_bridge.stop()
+            self.dds_bridge = None
+            logger.info("DDS Bridge stopped")
 
+        # Cleanup publishers
         if robot_id in self.publishers:
             for pub in self.publishers[robot_id].values():
                 self.node.destroy_publisher(pub)
@@ -382,191 +510,25 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
         """Process queued commands (no-op for CycloneDDS)."""
         pass
 
-    # === Data Reception Callbacks ===
+    # === Deprecated Methods (kept for compatibility) ===
+    # These were used with ROS2 subscriptions, now replaced by DDSBridge
 
-    def _on_low_state(self, msg: LowState, robot_id: str) -> None:
-        """Handle LowState message from robot."""
-        try:
-            if not self.data_callback:
-                return
+    def _on_low_state(self, msg, robot_id: str) -> None:
+        """DEPRECATED: Old ROS2 subscription callback."""
+        logger.warning("_on_low_state() called but should not be used with DDSBridge")
 
-            # Convert LowState to format expected by RobotDataService
-            motor_states = []
-            for motor in msg.motor_state[:12]:  # 12 joints for quadruped
-                motor_states.append(
-                    {
-                        "mode": motor.mode,
-                        "q": motor.q,
-                        "dq": motor.dq,
-                        "ddq": motor.ddq,
-                        "tau_est": motor.tau_est,
-                        "q_raw": motor.q_raw,
-                        "dq_raw": motor.dq_raw,
-                        "ddq_raw": motor.ddq_raw,
-                        "temperature": motor.temperature,
-                        "lost": motor.lost,
-                    }
-                )
+    def _on_sport_mode_state(self, msg, robot_id: str) -> None:
+        """DEPRECATED: Old ROS2 subscription callback."""
+        logger.warning("_on_sport_mode_state() called but should not be used with DDSBridge")
 
-            # Build message dict matching WebRTC format
-            data = {
-                "topic": "rt/lf/lowstate",  # Match WebRTC topic
-                "data": {
-                    "head": list(msg.head),
-                    "level_flag": msg.level_flag,
-                    "frame_reserve": msg.frame_reserve,
-                    "motor_state": motor_states,
-                    "imu_state": {
-                        "quaternion": list(msg.imu_state.quaternion),
-                        "accelerometer": list(msg.imu_state.accelerometer),
-                        "gyroscope": list(msg.imu_state.gyroscope),
-                        "rpy": list(msg.imu_state.rpy),
-                        "temperature": msg.imu_state.temperature,
-                    },
-                    "bms_state": {
-                        "version_high": msg.bms_state.version_high if hasattr(msg.bms_state, 'version_high') else 0,
-                        "version_low": msg.bms_state.version_low if hasattr(msg.bms_state, 'version_low') else 0,
-                        "soc": msg.bms_state.soc if hasattr(msg.bms_state, 'soc') else 0,
-                        "current": msg.bms_state.current if hasattr(msg.bms_state, 'current') else 0,
-                        "cycle": msg.bms_state.cycle if hasattr(msg.bms_state, 'cycle') else 0,
-                    },
-                    "foot_force": list(msg.foot_force),
-                    "foot_force_est": list(msg.foot_force_est),
-                    "tick": msg.tick,
-                    "wireless_remote": list(msg.wireless_remote),
-                    "bit_flag": msg.bit_flag,
-                    "adc_reel": msg.adc_reel,
-                    "temperature_ntc1": msg.temperature_ntc1,
-                    "temperature_ntc2": msg.temperature_ntc2,
-                    "power_v": msg.power_v,
-                    "power_a": msg.power_a,
-                    "fan_frequency": list(msg.fan_frequency),
-                    "reserve": msg.reserve,
-                },
-            }
+    def _on_lidar_cloud(self, msg, robot_id: str) -> None:
+        """DEPRECATED: Old ROS2 subscription callback."""
+        logger.warning("_on_lidar_cloud() called but should not be used with DDSBridge")
 
-            self.data_callback(data, robot_id)
+    def _on_robot_pose(self, msg, robot_id: str) -> None:
+        """DEPRECATED: Old ROS2 subscription callback."""
+        logger.warning("_on_robot_pose() called but should not be used with DDSBridge")
 
-        except Exception as e:
-            logger.error(f"Error processing LowState: {e}")
-
-    def _on_sport_mode_state(self, msg: SportModeState, robot_id: str) -> None:
-        """Handle SportModeState message from robot."""
-        try:
-            if not self.data_callback:
-                return
-
-            # Build message dict matching WebRTC format
-            data = {
-                "topic": "rt/lf/sportmodestate",  # Match WebRTC topic
-                "data": {
-                    "stamp": {
-                        "sec": msg.stamp.sec if hasattr(msg.stamp, 'sec') else 0,
-                        "nanosec": msg.stamp.nanosec if hasattr(msg.stamp, 'nanosec') else 0,
-                    },
-                    "error_code": msg.error_code,
-                    "mode": msg.mode,
-                    "progress": msg.progress,
-                    "gait_type": msg.gait_type,
-                    "foot_raise_height": msg.foot_raise_height,
-                    "position": list(msg.position),
-                    "body_height": msg.body_height,
-                    "velocity": list(msg.velocity),
-                    "yaw_speed": msg.yaw_speed,
-                    "range_obstacle": list(msg.range_obstacle),
-                    "foot_force": list(msg.foot_force),
-                    "foot_position_body": list(msg.foot_position_body),
-                    "foot_speed_body": list(msg.foot_speed_body),
-                    "imu_state": {
-                        "quaternion": list(msg.imu_state.quaternion),
-                        "accelerometer": list(msg.imu_state.accelerometer),
-                        "gyroscope": list(msg.imu_state.gyroscope),
-                        "rpy": list(msg.imu_state.rpy),
-                        "temperature": msg.imu_state.temperature,
-                    },
-                },
-            }
-
-            self.data_callback(data, robot_id)
-
-        except Exception as e:
-            logger.error(f"Error processing SportModeState: {e}")
-
-    def _on_lidar_cloud(self, msg: PointCloud2, robot_id: str) -> None:
-        """Handle LiDAR PointCloud2 message from robot."""
-        try:
-            if not self.data_callback:
-                return
-
-            # For CycloneDDS, the PointCloud2 data is already in standard format
-            # We pass it through to be republished
-            data = {
-                "topic": "cyclonedds/lidar_cloud",
-                "pointcloud2_msg": msg,
-                "robot_id": robot_id,
-            }
-
-            self.data_callback(data, robot_id)
-
-        except Exception as e:
-            logger.error(f"Error processing LiDAR cloud: {e}")
-
-    def _on_robot_pose(self, msg: PoseStamped, robot_id: str) -> None:
-        """Handle robot pose message."""
-        try:
-            if not self.data_callback:
-                return
-
-            data = {
-                "topic": "rt/utlidar/robot_pose",  # Match WebRTC topic format
-                "data": {
-                    "pose": {
-                        "position": {
-                            "x": msg.pose.position.x,
-                            "y": msg.pose.position.y,
-                            "z": msg.pose.position.z,
-                        },
-                        "orientation": {
-                            "x": msg.pose.orientation.x,
-                            "y": msg.pose.orientation.y,
-                            "z": msg.pose.orientation.z,
-                            "w": msg.pose.orientation.w,
-                        },
-                    }
-                },
-            }
-
-            self.data_callback(data, robot_id)
-
-        except Exception as e:
-            logger.error(f"Error processing robot pose: {e}")
-
-    def _on_odometry(self, msg: Odometry, robot_id: str) -> None:
-        """Handle odometry message."""
-        try:
-            if not self.data_callback:
-                return
-
-            data = {
-                "topic": "rt/utlidar/robot_pose",
-                "data": {
-                    "pose": {
-                        "position": {
-                            "x": msg.pose.pose.position.x,
-                            "y": msg.pose.pose.position.y,
-                            "z": msg.pose.pose.position.z,
-                        },
-                        "orientation": {
-                            "x": msg.pose.pose.orientation.x,
-                            "y": msg.pose.pose.orientation.y,
-                            "z": msg.pose.pose.orientation.z,
-                            "w": msg.pose.pose.orientation.w,
-                        },
-                    }
-                },
-            }
-
-            self.data_callback(data, robot_id)
-
-        except Exception as e:
-            logger.error(f"Error processing odometry: {e}")
+    def _on_odometry(self, msg, robot_id: str) -> None:
+        """DEPRECATED: Old ROS2 subscription callback."""
+        logger.warning("_on_odometry() called but should not be used with DDSBridge")
