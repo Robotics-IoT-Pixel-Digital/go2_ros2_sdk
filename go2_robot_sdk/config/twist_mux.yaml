@@ -17,6 +17,7 @@
 
 /twist_mux:
   ros__parameters:
+    out_topic: cmd_vel_out
     topics:
       joy:
         topic   : cmd_vel_joy

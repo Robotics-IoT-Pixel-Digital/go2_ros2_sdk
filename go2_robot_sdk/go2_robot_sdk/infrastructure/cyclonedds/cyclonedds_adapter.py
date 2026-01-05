@@ -7,14 +7,14 @@ CycloneDDS Adapter for Go2 robot communication over Ethernet.
 This adapter implements the IRobotDataReceiver and IRobotController interfaces
 for communication with the Go2 robot via CycloneDDS (Ethernet connection).
 
-FIXED: Now uses raw CycloneDDS Python API to subscribe to rt/ prefixed topics
-instead of ROS2 APIs. The Go2 robot publishes raw DDS topics that are NOT
-ROS2-compatible, so we need to use the cyclonedds library directly.
+FIXED: Now uses raw CycloneDDS Python API for both subscribing AND publishing.
+The Go2 robot publishes/subscribes to raw DDS topics that are NOT ROS2-compatible,
+so we need to use the cyclonedds library directly for all robot communication.
 
 The adapter:
 1. Uses DDSBridge to subscribe to raw rt/ topics from robot
-2. Converts received data and forwards to RobotDataService
-3. Publishes commands back to robot via ROS2 publishers (commands still work)
+2. Uses DDSBridge to publish raw DDS commands to robot (NOT ROS2 publishers!)
+3. Converts received data and forwards to RobotDataService
 """
 
 import logging
@@ -23,11 +23,9 @@ from typing import Callable, Dict, Any, Optional
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSHistoryPolicy, QoSReliabilityPolicy
 
-from geometry_msgs.msg import Twist, PoseStamped
+from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import PointCloud2
 from nav_msgs.msg import Odometry
-
-from go2_interfaces.msg import SportModeCmd
 
 from ...domain.interfaces import IRobotDataReceiver, IRobotController
 from ...domain.entities import RobotConfig
@@ -151,16 +149,16 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
             # Subscribe to raw DDS topics using the bridge
             self._subscribe_dds_topics(robot_id)
 
-            # Create ROS2 publishers for commands (these still work!)
-            self._create_publishers(robot_id, prefix)
+            # Create raw DDS writers for sending commands to robot
+            self._create_dds_writers(robot_id, prefix)
             
-            # Create ROS2 publishers for republishing DDS data
+            # Create ROS2 publishers for republishing DDS data (for visualization/Nav2)
             self._create_ros2_republishers(robot_id, prefix)
 
             self.connected_robots[robot_id] = True
             logger.info(f"CycloneDDS connection established for robot {robot_id}")
             logger.info(f"  - Subscribed to raw DDS rt/ topics via DDSBridge")
-            logger.info(f"  - Created ROS2 publishers for sending commands")
+            logger.info(f"  - Created raw DDS writers for sending commands")
 
             # Call validation callback (connection is immediate for CycloneDDS)
             if self.on_validated_callback:
@@ -294,28 +292,40 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
         """
         logger.debug("_create_subscribers() is deprecated - using DDS bridge instead")
 
-    def _create_publishers(self, robot_id: str, prefix: str) -> None:
-        """Create ROS2 publishers for robot command topics."""
-
-        # Initialize publisher storage
+    def _create_dds_writers(self, robot_id: str, prefix: str) -> None:
+        """
+        Create raw DDS writers for sending commands to robot.
+        
+        IMPORTANT: Uses raw CycloneDDS DataWriters (NOT ROS2 publishers) because
+        the Go2 robot expects raw DDS messages without ROS2 metadata.
+        """
+        # Build topic name with prefix if multi-robot
+        sport_cmd_topic = f"{prefix}{CYCLONEDDS_TOPICS['SPORT_MODE_CMD']}" if prefix else CYCLONEDDS_TOPICS['SPORT_MODE_CMD']
+        
+        # Create writer using DDSBridge
+        if self.dds_bridge:
+            success = self.dds_bridge.create_sport_cmd_writer(sport_cmd_topic)
+            if success:
+                logger.info(f"Created raw DDS writer for {sport_cmd_topic}")
+            else:
+                logger.error(f"Failed to create DDS writer for {sport_cmd_topic}")
+        
+        # Store the topic name for this robot for later use
         if robot_id not in self.publishers:
             self.publishers[robot_id] = {}
+        self.publishers[robot_id]["sport_cmd_topic"] = sport_cmd_topic
+        
+        logger.debug(f"Created raw DDS writers for robot {robot_id}")
 
-        # SportModeCmd publisher for movement commands
-        self.publishers[robot_id]["sport_cmd"] = self.node.create_publisher(
-            SportModeCmd,
-            f"{prefix}{CYCLONEDDS_TOPICS['SPORT_MODE_CMD']}",
-            self.qos_reliable,
-        )
-
-        # Twist publisher for velocity commands (alternative interface)
-        self.publishers[robot_id]["cmd_vel"] = self.node.create_publisher(
-            Twist,
-            f"{prefix}{CYCLONEDDS_TOPICS['CMD_VEL']}",
-            self.qos_reliable,
-        )
-
-        logger.debug(f"Created command publishers for robot {robot_id}")
+    def _create_publishers(self, robot_id: str, prefix: str) -> None:
+        """
+        DEPRECATED: Old method that used ROS2 publishers.
+        
+        Now replaced by _create_dds_writers() for raw DDS publishing.
+        Kept for compatibility but calls new method.
+        """
+        logger.debug("_create_publishers() is deprecated - using _create_dds_writers() instead")
+        self._create_dds_writers(robot_id, prefix)
 
     def _create_ros2_republishers(self, robot_id: str, prefix: str) -> None:
         """Create ROS2 publishers for republishing raw DDS data."""
@@ -407,86 +417,97 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
         Send raw command to robot.
 
         Note: For CycloneDDS, this is a no-op as commands are sent
-        via typed ROS2 messages, not raw strings.
+        via raw DDS messages, not raw strings.
         """
         logger.debug(
             "send_command() called in CycloneDDS mode; raw command strings are ignored "
-            "because only typed ROS2 messages are supported"
+            "because only raw DDS messages are supported"
         )
 
     def send_movement_command(
         self, robot_id: str, x: float, y: float, z: float
     ) -> None:
-        """Send movement command to robot via CycloneDDS."""
+        """
+        Send movement command to robot via raw CycloneDDS.
+        
+        Uses DDSBridge to publish raw DDS messages directly to the robot,
+        bypassing ROS2 middleware which the robot doesn't understand.
+        """
         try:
-            if robot_id not in self.publishers:
-                logger.warning(f"No publishers for robot {robot_id}")
+            if not self.dds_bridge:
+                logger.warning("DDS Bridge not initialized")
                 return
 
-            # Create SportModeCmd message
-            cmd = SportModeCmd()
-            cmd.mode = 2  # Walk mode
-            cmd.gait_type = 1  # Trot gait
-            cmd.speed_level = 1
-            cmd.foot_raise_height = 0.1
-            cmd.body_height = 0.0
-            cmd.velocity = [float(x), float(y)]
-            cmd.yaw_speed = float(z)
+            # Get the topic name for this robot
+            topic_name = CYCLONEDDS_TOPICS['SPORT_MODE_CMD']
+            if robot_id in self.publishers and "sport_cmd_topic" in self.publishers[robot_id]:
+                topic_name = self.publishers[robot_id]["sport_cmd_topic"]
 
-            self.publishers[robot_id]["sport_cmd"].publish(cmd)
-
-            # Also publish as Twist for compatibility
-            twist = Twist()
-            twist.linear.x = float(x)
-            twist.linear.y = float(y)
-            twist.angular.z = float(z)
-            self.publishers[robot_id]["cmd_vel"].publish(twist)
-
-            logger.debug(
-                f"Movement command sent to robot {robot_id}: x={x}, y={y}, z={z}"
-            )
+            # Use DDSBridge to publish raw DDS message
+            success = self.dds_bridge.publish_movement(x, y, z, topic_name)
+            
+            if success:
+                logger.debug(
+                    f"Movement command sent to robot {robot_id}: x={x}, y={y}, z={z}"
+                )
+            else:
+                logger.warning(f"Failed to send movement command to robot {robot_id}")
 
         except Exception as e:
             logger.error(f"Error sending movement command: {e}")
 
     def send_stand_up_command(self, robot_id: str) -> None:
-        """Send stand up command via CycloneDDS."""
+        """
+        Send stand up command via raw CycloneDDS.
+        
+        Uses DDSBridge to publish raw DDS messages directly to the robot.
+        Same button mapping as WebRTC mode: buttons[0] = StandUp
+        """
         try:
-            if robot_id not in self.publishers:
+            if not self.dds_bridge:
+                logger.warning("DDS Bridge not initialized")
                 return
 
-            cmd = SportModeCmd()
-            cmd.mode = 1  # Stand up mode
-            cmd.gait_type = 0
-            cmd.speed_level = 0
-            cmd.foot_raise_height = 0.0
-            cmd.body_height = 0.0
-            cmd.velocity = [0.0, 0.0]
-            cmd.yaw_speed = 0.0
+            # Get the topic name for this robot
+            topic_name = CYCLONEDDS_TOPICS['SPORT_MODE_CMD']
+            if robot_id in self.publishers and "sport_cmd_topic" in self.publishers[robot_id]:
+                topic_name = self.publishers[robot_id]["sport_cmd_topic"]
 
-            self.publishers[robot_id]["sport_cmd"].publish(cmd)
-            logger.info(f"Stand up command sent to robot {robot_id}")
+            # Use DDSBridge to publish stand up command
+            success = self.dds_bridge.publish_stand_up(topic_name)
+            
+            if success:
+                logger.info(f"Stand up command sent to robot {robot_id}")
+            else:
+                logger.warning(f"Failed to send stand up command to robot {robot_id}")
 
         except Exception as e:
             logger.error(f"Error sending stand up command: {e}")
 
     def send_stand_down_command(self, robot_id: str) -> None:
-        """Send stand down command via CycloneDDS."""
+        """
+        Send stand down command via raw CycloneDDS.
+        
+        Uses DDSBridge to publish raw DDS messages directly to the robot.
+        Same button mapping as WebRTC mode: buttons[1] = StandDown
+        """
         try:
-            if robot_id not in self.publishers:
+            if not self.dds_bridge:
+                logger.warning("DDS Bridge not initialized")
                 return
 
-            cmd = SportModeCmd()
-            cmd.mode = 5  # Stand down mode
-            cmd.gait_type = 0
-            cmd.speed_level = 0
-            cmd.foot_raise_height = 0.0
-            cmd.body_height = 0.0
-            cmd.velocity = [0.0, 0.0]
-            cmd.yaw_speed = 0.0
+            # Get the topic name for this robot
+            topic_name = CYCLONEDDS_TOPICS['SPORT_MODE_CMD']
+            if robot_id in self.publishers and "sport_cmd_topic" in self.publishers[robot_id]:
+                topic_name = self.publishers[robot_id]["sport_cmd_topic"]
 
-            self.publishers[robot_id]["sport_cmd"].publish(cmd)
-            logger.info(f"Stand down command sent to robot {robot_id}")
+            # Use DDSBridge to publish stand down command
+            success = self.dds_bridge.publish_stand_down(topic_name)
+            
+            if success:
+                logger.info(f"Stand down command sent to robot {robot_id}")
+            else:
+                logger.warning(f"Failed to send stand down command to robot {robot_id}")
 
         except Exception as e:
             logger.error(f"Error sending stand down command: {e}")
@@ -498,7 +519,7 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
         Send WebRTC-style request.
 
         Note: In CycloneDDS mode, WebRTC requests are mapped to appropriate
-        ROS2 topic publishes where possible.
+        raw DDS publishes where possible.
         """
         logger.debug(
             f"WebRTC request in CycloneDDS mode - api_id: {api_id}, topic: {topic}"
