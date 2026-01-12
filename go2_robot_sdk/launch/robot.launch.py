@@ -33,10 +33,11 @@ class Go2LaunchConfig:
         self.package_dir = get_package_share_directory('go2_robot_sdk')
         self.config_paths = self._get_config_paths()
         
-        print(f"� Go2 Launch Configuration:")
+        print(f"� Go2 Launch Configuration:") 
         print(f"   Robot IPs: {self.robot_ip_list}")
         print(f"   Connection: {self.conn_type} ({self.conn_mode})")
         print(f"   URDF: {self.urdf_file}")
+
     
     def _parse_ip_list(self, robot_ip: str) -> List[str]:
         """Parse robot IP addresses from environment variable"""
@@ -87,7 +88,7 @@ class Go2NodeFactory:
             DeclareLaunchArgument('rviz2', default_value='true', description='Launch RViz2'),
             DeclareLaunchArgument('nav2', default_value='true', description='Launch Nav2'),
             DeclareLaunchArgument('slam', default_value='true', description='Launch SLAM'),
-            DeclareLaunchArgument('foxglove', default_value='true', description='Launch Foxglove Bridge'),
+            DeclareLaunchArgument('foxglove', default_value='false', description='Launch Foxglove Bridge'),
             DeclareLaunchArgument('joystick', default_value='true', description='Launch joystick'),
             DeclareLaunchArgument('teleop', default_value='true', description='Launch teleoperation'),
         ]
@@ -230,13 +231,41 @@ class Go2NodeFactory:
             ),
         ]
         
-        # Only add LiDAR processor nodes if not using cyclonedds
-        # In CycloneDDS mode, the robot publishes LiDAR data directly on:
-        #   /utlidar/cloud (PointCloud2) - raw point cloud from LiDAR
-        #   /utlidar/robot_pose (PoseStamped) - robot pose from SLAM
-        #   /utlidar/robot_odom (Odometry) - odometry from LiDAR
-        # Subscribe to these topics directly or remap them as needed
-        if self.config.conn_type != 'cyclonedds':
+        # Add appropriate LiDAR processing nodes based on connection type
+        if self.config.conn_type == 'cyclonedds':
+            # CycloneDDS mode: Robot publishes native high-frequency point clouds directly
+            # Process the raw /utlidar/cloud with WebRTC-style filtering for compatibility
+            nodes.extend([
+                # Process high-frequency CycloneDDS point clouds with WebRTC-style filtering
+                Node(
+                    package='lidar_processor',
+                    executable='cyclonedds_pointcloud_processor',
+                    name='cyclonedds_pointcloud_processor',
+                    parameters=[{
+                        'intensity_threshold': 0.1,      # Match WebRTC filtering
+                        'min_height': -0.3,              # Same as WebRTC processing
+                        'max_height': 0.5,               # Same as WebRTC processing
+                        'max_range': 20.0,
+                        'min_range': 0.1,
+                        'downsample_rate': 1,            # No downsampling for full fidelity
+                        'remove_duplicates': True,       # Match WebRTC behavior
+                        'target_frame': 'base_link',
+                    }],
+                ),
+                # Map building from processed point clouds
+                Node(
+                    package='lidar_processor',
+                    executable='lidar_to_pointcloud',
+                    name='lidar_to_pointcloud',
+                    parameters=[{
+                        'robot_ip_lst': self.config.robot_ip_list,
+                        'map_name': self.config.map_name,
+                        'map_save': self.config.save_map
+                    }],
+                ),
+            ])
+        else:
+            # WebRTC mode: Robot sends compressed voxel data that gets decoded
             nodes.extend([
                 # LiDAR processing node (new separate package)
                 Node(
