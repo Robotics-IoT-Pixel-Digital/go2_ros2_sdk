@@ -6,6 +6,8 @@ from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 
+# TODO: Add the pointcloud2_aggregator node to run with this launch file
+
 class Go2LaunchConfig:
     
     def __init__(self):
@@ -79,9 +81,9 @@ class Go2NodeFactory:
                 arguments=['0', '0', '0', '0', '0', '0', 'radar', 'utlidar_lidar']
             ),
         ]
-
+    
     def create_laserscan_nodes(self) -> List[Node]:
-        cloud_topic = 'utlidar/cloud_deskewed'
+        cloud_topic = 'utlidar/cloud_deskewed_aggregated'
 
         return [
             Node(
