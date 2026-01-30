@@ -53,6 +53,11 @@ class Go2NodeFactory:
                 'nav2',
                 default_value='false',
                 description='Enable/disable Nav2 navigation nodes [boolean]'
+            ),
+            DeclareLaunchArgument(
+                'rviz',
+                default_value='true',
+                description='Enable/disable RViz Visualization [boolean]'
             )
         ]
 
@@ -151,6 +156,8 @@ class Go2NodeFactory:
         ]
     
     def create_visualization_nodes(self) -> List[Node]:
+        rviz_args = LaunchConfiguration('rviz')
+        
         return [
             Node(
                 package='rviz2',
@@ -158,6 +165,7 @@ class Go2NodeFactory:
                 name='go2_rviz2',
                 output='screen',
                 arguments=['-d', self.config.config_paths['rviz']],
+                condition=IfCondition(LaunchConfiguration('rviz')),
                 parameters=[{'use_sim_time': False}]
             ),
         ]
