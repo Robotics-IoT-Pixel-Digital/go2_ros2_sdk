@@ -4,102 +4,124 @@ from launch.actions import (
     ExecuteProcess,
     IncludeLaunchDescription
 )
-from launch.substitutions import LaunchConfiguration
+from launch.conditions import IfCondition, UnlessCondition
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from ament_index_python.packages import get_package_share_directory
 import os
 
 
+class Go2Rosbag:
+
+    def __init__(self):
+        self.rosbag_dir = LaunchConfiguration('rosbag_dir')
+        self.play_topics = LaunchConfiguration('play_topics')
+        self.slam_params = LaunchConfiguration('slam_params')
+        self.rviz_config = LaunchConfiguration('rviz_config')
+        self.use_sim_time = LaunchConfiguration('use_sim_time')
+
+
+    def arguments(self):
+        return [
+            DeclareLaunchArgument(
+                'rosbag_dir',
+                default_value='/home/ubuntu/Projects/UnitreeGo2/ros2_ws/record/lobby_test',
+                description='Directory of rosbag file to play'
+            ),
+            DeclareLaunchArgument(
+                'play_topics',
+                default_value='',
+                description='Topics to play (space-separated). Default play all'
+            ),
+            DeclareLaunchArgument(
+                'slam_params',
+                default_value='/home/ubuntu/Projects/UnitreeGo2/ros2_ws/src/go2_robot_sdk/config/mapper_params_online_async_cyclonedds.yaml',
+                description='SLAM Toolbox parameter file'
+            ),
+            DeclareLaunchArgument(
+                'rviz_config',
+                default_value='/home/ubuntu/Projects/UnitreeGo2/ros2_ws/src/go2_robot_sdk/config/rosbag.rviz',
+                description='RViz config'
+            ),
+            DeclareLaunchArgument(
+                'use_sim_time',
+                default_value='true',
+                description='Use simulation time'
+            ),
+        ]
+
+    def rosbag_play_all(self):
+        return ExecuteProcess(
+            condition=UnlessCondition(
+                PythonExpression(["'", self.play_topics, "' != ''"])
+            ),
+            cmd=[
+                'ros2', 'bag', 'play',
+                self.rosbag_dir,
+                '--clock'
+            ],
+            output='screen'
+        )
+
+    def rosbag_play_selected(self):
+        return ExecuteProcess(
+            condition=IfCondition(
+                PythonExpression(["'", self.play_topics, "' != ''"])
+            ),
+            cmd=[
+                'ros2', 'bag', 'play',
+                self.rosbag_dir,
+                '--topics',
+                self.play_topics,
+                '--clock'
+            ],
+            output='screen'
+        )
+
+    def rviz(self):
+        return Node(
+            package='rviz2',
+            executable='rviz2',
+            arguments=['-d', self.rviz_config],
+            parameters=[{'use_sim_time': self.use_sim_time}],
+            output='screen'
+        )
+
+    def slam_toolbox(self):
+        return IncludeLaunchDescription(
+                PythonLaunchDescriptionSource([
+                    os.path.join(get_package_share_directory('slam_toolbox'),
+                                'launch', 'online_async_launch.py')
+                ]),
+                launch_arguments={
+                    'slam_params_file': self.slam_params,
+                    'use_sim_time': self.use_sim_time
+                }.items()
+            )
+    
+    def slam_toolbox_offline(self):
+        return IncludeLaunchDescription(
+                PythonLaunchDescriptionSource([
+                    os.path.join(get_package_share_directory('slam_toolbox'),
+                                'launch', 'offline_launch.py')
+                ])
+            )
+        
+
+
 def generate_launch_description():
 
-    rosbag_dir_arg = DeclareLaunchArgument(
-        'rosbag_dir',
-        default_value='/home/ubuntu/Projects/UnitreeGo2/ros2_ws/rosbag2_record_1/',
-        description='Directory of rosbag to play'
-    )
+    launcher = Go2Rosbag()
+    launch = LaunchDescription()
 
-    slam_params_arg = DeclareLaunchArgument(
-        'slam_params_file',
-        default_value='/home/ubuntu/Projects/UnitreeGo2/ros2_ws/src/go2_robot_sdk/config/mapper_params_online_async_cyclonedds.yaml',
-        description='SLAM Toolbox parameter file'
-    )
+    for arg in launcher.arguments():
+        launch.add_action(arg)
 
-    rviz_config_arg = DeclareLaunchArgument(
-        'rviz_config',
-        default_value='/home/ubuntu/Projects/UnitreeGo2/ros2_ws/src/go2_robot_sdk/config/rosbag.rviz',
-        description='RViz config file (empty = default RViz)'
-    )
+    launch.add_action(launcher.rosbag_play_all())
+    launch.add_action(launcher.rosbag_play_selected())
+    launch.add_action(launcher.rviz())
+    launch.add_action(launcher.slam_toolbox())
+    # launch.add_action(launcher.slam_toolbox_offline())
 
-    use_sim_time_arg = DeclareLaunchArgument(
-        'use_sim_time',
-        default_value='false',
-        description='Use simulation time'
-    )
-
-    rosbag_dir = LaunchConfiguration('rosbag_dir')
-    slam_params_file = LaunchConfiguration('slam_params_file')
-    rviz_config = LaunchConfiguration('rviz_config')
-    use_sim_time = LaunchConfiguration('use_sim_time')
-
-    rosbag_play = ExecuteProcess(
-        cmd=[
-            'ros2', 'bag', 'play',
-            rosbag_dir,
-            '--topics',
-            '/tf',
-            '/tf_static',
-            '/odom',
-            '/scan'
-        ],
-        output='screen'
-    )
-
-    rviz_node = Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        arguments=[
-            '-d', rviz_config
-        ],
-        parameters=[{
-            'use_sim_time': use_sim_time
-        }],
-        output='screen'
-    )
-
-    slam_toolbox_launch = os.path.join(
-        get_package_share_directory('slam_toolbox'),
-        'launch',
-        'online_async_launch.py'
-    )
-
-    slam_toolbox = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(slam_toolbox_launch),
-        launch_arguments={
-            'slam_params_file': slam_params_file,
-            'use_sim_time': use_sim_time
-        }.items()
-    )
-
-    # slam_toolbox_launch = os.path.join(
-    #     get_package_share_directory('slam_toolbox'),
-    #     'launch',
-    #     'offline_launch.py'
-    # )
-
-    # slam_toolbox = IncludeLaunchDescription(
-    #     PythonLaunchDescriptionSource(slam_toolbox_launch)
-    # )
-
-
-    return LaunchDescription([
-        rosbag_dir_arg,
-        slam_params_arg,
-        rviz_config_arg,
-        use_sim_time_arg,
-
-        rosbag_play,
-        rviz_node,
-        slam_toolbox
-    ])
+    return launch

@@ -147,13 +147,13 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
                 logger.info("DDS Bridge started for raw DDS topic subscriptions")
 
             # Subscribe to raw DDS topics using the bridge
-            self._subscribe_dds_topics(robot_id)
+            # self._subscribe_dds_topics(robot_id)
 
             # Create raw DDS writers for sending commands to robot
-            self._create_dds_writers(robot_id, prefix)
+            # self._create_dds_writers(robot_id, prefix)
             
             # Create ROS2 publishers for republishing DDS data (for visualization/Nav2)
-            self._create_ros2_republishers(robot_id, prefix)
+            # self._create_ros2_republishers(robot_id, prefix)
 
             self.connected_robots[robot_id] = True
             logger.info(f"CycloneDDS connection established for robot {robot_id}")
@@ -215,7 +215,7 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
                 msg_type="pointcloud"
             )
         except Exception as e:
-            logger.warning(f"Could not subscribe to LiDAR cloud topic: {e}")
+            logger.warning(f"\n\nCould not subscribe to LiDAR cloud topic: {e}\n\n")
 
         # Subscribe to robot pose from LiDAR SLAM
         try:
@@ -227,7 +227,7 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
                 msg_type="robot_pose"
             )
         except Exception as e:
-            logger.warning(f"Could not subscribe to robot pose topic: {e}")
+            logger.warning(f"\n\nCould not subscribe to robot pose topic: {e}\n\n")
 
         # Subscribe to odometry from LiDAR
         try:
@@ -239,7 +239,7 @@ class CycloneDDSAdapter(IRobotDataReceiver, IRobotController):
                 msg_type="odometry"
             )
         except Exception as e:
-            logger.warning(f"Could not subscribe to odometry topic: {e}")
+            logger.warning(f"\n\nCould not subscribe to odometry topic: {e}\n\n")
 
         logger.info(f"DDS topic subscriptions completed for robot {robot_id}")
 

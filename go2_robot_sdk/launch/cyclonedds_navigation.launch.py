@@ -5,7 +5,6 @@ from launch_ros.actions import Node
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable, DeclareLaunchArgument
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 
 
@@ -29,7 +28,6 @@ class Go2LaunchConfig:
         return {
             'joystick': os.path.join(self.go2_package_dir, 'config', 'joystick.yaml'),
             'twistmux': os.path.join(self.go2_package_dir, 'config', 'twist_mux.yaml'),
-            'slam': os.path.join(self.go2_package_dir, 'config', 'mapper_params_online_async_cyclonedds.yaml'),
             'rviz': os.path.join(self.go2_package_dir, 'config', 'cyclonedds_config.rviz'),
             'urdf': os.path.join(self.go2_package_dir, 'urdf', 'go2.urdf'),
             'cyclonedds': os.path.join(self.go2_package_dir, 'config', 'cyclonedds.xml'),
@@ -49,13 +47,11 @@ class Go2NodeFactory:
         
     def create_launch_arguments(self) -> List[DeclareLaunchArgument]:
         return [
-            DeclareLaunchArgument(
-                'nav2',
-                default_value='false',
-                description='Enable/disable Nav2 navigation nodes [boolean]'
-            )
+            DeclareLaunchArgument('map', 
+                default_value='/home/ubuntu/Projects/UnitreeGo2/ros2_ws/src/go2_robot_sdk/maps/Lobby_1.yaml',
+                description='Absolute path to the map yaml formatted file'),
         ]
-
+        
     def create_core_nodes(self) -> List[Node]:       
         return [
             Node(
@@ -162,23 +158,7 @@ class Go2NodeFactory:
             ),
         ]
     
-    def create_slam_launches(self) -> List[IncludeLaunchDescription]:
-        return [
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource([
-                    os.path.join(get_package_share_directory('slam_toolbox'),
-                                'launch', 'online_async_launch.py')
-                ]),
-                launch_arguments={
-                    'slam_params_file': self.config.config_paths['slam'],
-                    'use_sim_time': 'false',
-                }.items(),
-            ),
-        ]
-    
     def create_nav2_launches(self) -> List[IncludeLaunchDescription]:
-        nav2_args = LaunchConfiguration('nav2')
-
         return [
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource([
@@ -189,7 +169,23 @@ class Go2NodeFactory:
                     'params_file': self.config.config_paths['nav2'],
                     'use_sim_time': 'false',
                 }.items(),
-                condition=IfCondition(LaunchConfiguration('nav2'))
+            ),
+        ]
+    
+    def create_localization_launches(self) -> List[IncludeLaunchDescription]:
+        map_file = LaunchConfiguration('map')
+
+        return [
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource([
+                    os.path.join(get_package_share_directory('nav2_bringup'),
+                                'launch', 'localization_launch.py')
+                ]),
+                launch_arguments={
+                    'map': map_file,
+                    'params_file': self.config.config_paths['nav2'],
+                    'use_sim_time': 'false',
+                }.items(),
             ),
         ]
     
@@ -206,8 +202,8 @@ def generate_launch_description():
     laserscan_nodes = factory.create_laserscan_nodes()
     teleop_nodes = factory.create_teleop_nodes()
     visualization_nodes = factory.create_visualization_nodes()
-    slam_launches = factory.create_slam_launches()
     nav2_launches = factory.create_nav2_launches()
+    localization_launches = factory.create_localization_launches()  
 
     print(f"🔧 Setting up CycloneDDS environment")
     print(f"   Config file: {config.config_paths['cyclonedds']}")
@@ -225,8 +221,8 @@ def generate_launch_description():
         laserscan_nodes +
         teleop_nodes +
         visualization_nodes + 
-        slam_launches + 
-        nav2_launches
+        nav2_launches + 
+        localization_launches
     )
     
     return LaunchDescription(launch_entities)

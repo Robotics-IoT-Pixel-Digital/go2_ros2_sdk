@@ -129,12 +129,21 @@ class ROS2Publisher(IRobotDataPublisher):
                 ]
 
             motor_state = robot_data.joint_data.motor_state
-            joint_state.position = [
-                motor_state[3]['q'], motor_state[4]['q'], motor_state[5]['q'],  # FL leg
-                motor_state[0]['q'], motor_state[1]['q'], motor_state[2]['q'],  # FR leg
-                motor_state[9]['q'], motor_state[10]['q'], motor_state[11]['q'], # RL leg
-                motor_state[6]['q'], motor_state[7]['q'], motor_state[8]['q'],  # RR leg
-            ]
+
+            if self.config.conn_type == 'cyclonedds':
+                joint_state.position = [
+                    motor_state[0].q, motor_state[1].q, motor_state[2].q,   # FR leg
+                    motor_state[3].q, motor_state[4].q, motor_state[5].q,   # FL leg
+                    motor_state[6].q, motor_state[7].q, motor_state[8].q,   # RR leg
+                    motor_state[9].q, motor_state[10].q, motor_state[11].q, # RL leg
+                ]
+            else:
+                joint_state.position = [
+                    motor_state[3]['q'], motor_state[4]['q'], motor_state[5]['q'],   # FL leg
+                    motor_state[0]['q'], motor_state[1]['q'], motor_state[2]['q'],   # FR leg
+                    motor_state[9]['q'], motor_state[10]['q'], motor_state[11]['q'], # RL leg
+                    motor_state[6]['q'], motor_state[7]['q'], motor_state[8]['q'],   # RR leg
+                ]
 
             self.publishers['joint_state'][robot_idx].publish(joint_state)
 

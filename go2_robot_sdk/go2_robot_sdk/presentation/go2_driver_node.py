@@ -4,6 +4,8 @@
 import asyncio
 import logging
 import os
+import math
+import numpy as np
 from typing import Dict, Any, Union
 
 from cv_bridge import CvBridge
@@ -15,12 +17,13 @@ from rcl_interfaces.msg import SetParametersResult
 from tf2_ros import TransformBroadcaster
 
 from geometry_msgs.msg import Twist, PoseStamped
-from go2_interfaces.msg import Go2State, IMU
-from go2_interfaces.msg import LowState, VoxelMapCompressed, WebRtcReq
+from go2_interfaces.msg import Go2State, IMU, WebRtcReq
 from sensor_msgs.msg import PointCloud2, JointState, Joy, Image, CameraInfo
 from nav_msgs.msg import Odometry
 
-from ..domain.entities import RobotConfig, RobotData, CameraData
+from unitree_go.msg import LowState, SportModeState, VoxelMapCompressed
+
+from ..domain.entities import RobotConfig, RobotData, CameraData, RobotState, OdometryData, IMUData, LidarData, JointData
 from ..domain.interfaces import IRobotDataReceiver, IRobotController
 from ..application.services import RobotDataService, RobotControlService
 from ..infrastructure.ros2 import ROS2Publisher
@@ -76,6 +79,7 @@ class Go2DriverNode(Node):
         # Log connection type
         self.get_logger().info(f"Using {self.config.conn_type} adapter")
 
+        
     def _create_adapter(self):
         """Create the appropriate adapter based on connection type."""
         if self.config.conn_type == 'cyclonedds':
@@ -164,7 +168,6 @@ class Go2DriverNode(Node):
         num_robots = len(self.config.robot_ip_list)
         
         for i in range(num_robots):
-            # Define topics depending on connection mode
             if self.config.conn_mode == 'single':
                 joint_topic = 'joint_states'
                 robot_state_topic = 'go2_states'
@@ -190,10 +193,10 @@ class Go2DriverNode(Node):
                 self.create_publisher(JointState, joint_topic, qos_profile))
             publishers['robot_state'].append(
                 self.create_publisher(Go2State, robot_state_topic, qos_profile))
-            publishers['lidar'].append(
-                self.create_publisher(
-                    PointCloud2, lidar_topic, best_effort_qos,
-                    qos_overriding_options=QoSOverridingOptions.with_default_policies()))
+            # publishers['lidar'].append(
+            #     self.create_publisher(
+            #         PointCloud2, lidar_topic, best_effort_qos,
+            #         qos_overriding_options=QoSOverridingOptions.with_default_policies()))
             publishers['odometry'].append(
                 self.create_publisher(Odometry, odom_topic, qos_profile))
             publishers['imu'].append(
@@ -223,25 +226,45 @@ class Go2DriverNode(Node):
         num_robots = len(self.config.robot_ip_list)
         
         if self.config.conn_mode == 'single':
-            self.create_subscription(
-                Twist, 'cmd_vel_out',
-                lambda msg: self._on_cmd_vel(msg, "0"), qos_profile)
-            self.create_subscription(
-                WebRtcReq, 'webrtc_req',
-                lambda msg: self._on_webrtc_req(msg, "0"), qos_profile)
+            self.create_subscription(Twist, 'cmd_vel_out',
+                                lambda msg: self._on_cmd_vel(msg, "0"), qos_profile)
+            if self.config.conn_type == 'webrtc':
+                self.create_subscription(WebRtcReq, 'webrtc_req',
+                                        lambda msg: self._on_webrtc_req(msg, "0"), qos_profile)
+            elif self.config.conn_type == 'cyclonedds':
+                robot_data = RobotData(robot_id="0", timestamp=0.0)
+                self.create_subscription(LowState, '/lf/lowstate',
+                                        lambda msg: self._on_cyclonedds_low_state(msg, robot_data), qos_profile)
+                self.create_subscription(SportModeState, '/lf/sportmodestate',
+                                        lambda msg: self._on_cyclonedds_sport_mode_state(msg, robot_data), qos_profile)
+                self.create_subscription(PoseStamped, '/utlidar/robot_pose',
+                                        lambda msg: self._on_cyclonedds_pose(msg, robot_data), qos_profile)
+                # self.create_subscription(Odometry, '/utlidar/robot_odom',
+                #                         lambda msg: self._on_cyclonedds_odom(msg, robot_data), qos_profile)
+                
         else:
             for i in range(num_robots):
                 self.create_subscription(
                     Twist, f'robot{i}/cmd_vel_out',
                     lambda msg, robot_id=str(i): self._on_cmd_vel(msg, robot_id), qos_profile)
-                self.create_subscription(
-                    WebRtcReq, f'robot{i}/webrtc_req',
-                    lambda msg, robot_id=str(i): self._on_webrtc_req(msg, robot_id), qos_profile)
+                if self.config.conn_type == 'webrtc':
+                    self.create_subscription(
+                        WebRtcReq, f'robot{i}/webrtc_req',
+                        lambda msg, robot_id=str(i): self._on_webrtc_req(msg, robot_id), qos_profile)
+                elif self.config.conn_type == 'cyclonedds':
+                    robot_data = RobotData(robot_id=str(i), timestamp=0.0)
+                    self.create_subscription(
+                        LowState, f'robot{i}/lf/low_state',
+                        lambda msg: self._on_cyclonedds_low_state(msg, robot_data), qos_profile)
+                    self.create_subscription(
+                        SportModeState, f'robot{i}/lf/sportmodestate',
+                        lambda msg: self._on_cyclonedds_sport_mode_state(msg, robot_data), qos_profile)
+                    self.create_subscription(
+                        PoseStamped, f'robot{i}/utlidar/robot_pose',
+                        lambda msg: self._on_cyclonedds_pose(msg, robot_data), qos_profile)
 
-        # Joystick subscriber
         self.create_subscription(Joy, 'joy', self._on_joy, qos_profile)
 
-        # Note: CycloneDDS subscriptions are now handled by CycloneDDSAdapter
 
     def _on_set_parameters(self, params) -> SetParametersResult:
         """Callback for parameter changes"""
@@ -294,7 +317,10 @@ class Go2DriverNode(Node):
 
     def _on_robot_data_received(self, msg: Dict[str, Any], robot_id: str) -> None:
         """Callback for receiving data from robot"""
-        self.robot_data_service.process_webrtc_message(msg, robot_id)
+        if self.config.conn_type == 'webrtc':
+            self.robot_data_service.process_webrtc_message(msg, robot_id)
+        elif self.config.conn_type == 'cyclonedds':
+            pass
 
     async def _on_video_frame(self, track, robot_id: str) -> None:
         """Callback for processing video frames (WebRTC only)"""
@@ -328,20 +354,162 @@ class Go2DriverNode(Node):
                 break
 
     # CycloneDDS callbacks
-    def _on_cyclonedds_low_state(self, msg: LowState) -> None:
+    def _on_cyclonedds_low_state(self, msg: LowState, robot_data: RobotData) -> None:
         """Processing LowState for CycloneDDS"""
-        # You can add processing for CycloneDDS here if needed
-        pass
+        try:
+            data = msg
 
-    def _on_cyclonedds_pose(self, msg: PoseStamped) -> None:
+            if data is None:
+                self.get_logger().warning("[Data None] Sport mode state message is not a dict, skipping")
+                return
+
+            if not hasattr(data, 'motor_state') or data.motor_state is None:
+                self.get_logger().warning("LowState: motor_state kosong/tidak ditemukan")
+                return
+
+            robot_data.joint_data = JointData(
+                motor_state=data.motor_state
+            )
+
+            self.ros2_publisher.publish_joint_state(robot_data)
+
+        except Exception as e:
+            self.get_logger().error(f"Error processing low state: {e}")
+
+    def _on_cyclonedds_sport_mode_state(self, msg: SportModeState, robot_data: RobotData) -> None:
+        """Processing sport mode state for CycloneDDS"""
+        try:
+            data = msg
+
+            if data is None:
+                self.get_logger().warning("[Data None] Sport mode state message is not a dict, skipping")
+                return
+
+            if not self._validate_float_list(list(data.position)):
+                self.get_logger().warning("Invalid position in sport mode state, skipping")
+                return
+            if not self._validate_float_list(list(data.range_obstacle)):
+                self.get_logger().warning("Invalid range_obstacle in sport mode state, skipping")
+                return
+            if not self._validate_float_list(list(data.foot_position_body)):
+                self.get_logger().warning("Invalid foot_position_body in sport mode state, skipping")
+                return
+            if not self._validate_float_list(list(data.foot_speed_body)):
+                self.get_logger().warning("Invalid foot_speed_body in sport mode state, skipping")
+                return
+            if not self._validate_float(data.body_height):
+                self.get_logger().warning("Invalid body_height in sport mode state, skipping")
+                return
+
+            robot_data.robot_state = RobotState(
+                mode=data.mode,
+                progress=data.progress,
+                gait_type=data.gait_type,
+                position=[float(x) for x in data.position],
+                body_height=data.body_height,
+                velocity=[float(x) for x in data.velocity],
+                range_obstacle=[float(x) for x in data.range_obstacle],
+                foot_force=[int(x) for x in data.foot_force],
+                foot_position_body=[float(x) for x in data.foot_position_body],
+                foot_speed_body=[float(x) for x in data.foot_speed_body]
+            )
+    
+            imu_data = data.imu_state if hasattr(data, 'imu_state') else None
+
+            if imu_data:
+                if (self._validate_float_list(list(imu_data.quaternion)) and
+                    self._validate_float_list(list(imu_data.accelerometer)) and
+                    self._validate_float_list(list(imu_data.gyroscope)) and
+                    self._validate_float_list(list(imu_data.rpy))):
+                    robot_data.imu_data = IMUData(
+                        quaternion=[float(x) for x in imu_data.quaternion],
+                        accelerometer=[float(x) for x in imu_data.accelerometer],
+                        gyroscope=[float(x) for x in imu_data.gyroscope],
+                        rpy=[float(x) for x in imu_data.rpy],
+                        temperature=imu_data.temperature
+                    )
+
+            self.ros2_publisher.publish_robot_state(robot_data)
+
+        except Exception as e:
+            self.get_logger().error(f"Error processing sport mode state: {e}")
+
+    def _on_cyclonedds_odom(self, msg: Odometry, robot_data: RobotData) -> None:
+        """Processing Odom for CycloneDDS"""
+        try:
+            pass
+        except Exception as e:
+            self.get_logger().error(f"Error processing odom data: {e}")
+
+    def _on_cyclonedds_pose(self, msg: PoseStamped, robot_data: RobotData) -> None:
         """Processing pose for CycloneDDS"""
-        # You can add processing for CycloneDDS here if needed
-        pass
+        try:
+            position = {
+                'x': msg.pose.position.x,
+                'y': msg.pose.position.y,
+                'z': msg.pose.position.z
+            }
+            orientation = {
+                'x': msg.pose.orientation.x,
+                'y': msg.pose.orientation.y,
+                'z': msg.pose.orientation.z,
+                'w': msg.pose.orientation.w
+            }
 
-    def _on_cyclonedds_lidar(self, msg: PointCloud2) -> None:
+            pos_vals = [position['x'], position['y'], position['z']]
+            rot_vals = [orientation['x'], orientation['y'], orientation['z'], orientation['w']]
+
+            if not all(isinstance(v, (int, float)) and math.isfinite(v) for v in pos_vals + rot_vals):
+                self.get_logger().warning("Invalid odometry data - skipping")
+                return
+
+            robot_data.odometry_data = OdometryData(
+                position=position,
+                orientation=orientation
+            )
+
+            self.ros2_publisher.publish_odometry(robot_data)
+
+        except Exception as e:
+            self.get_logger().error(f"Error processing odometry data: {e}")
+
+    def _on_cyclonedds_lidar(self, msg: PointCloud2, robot_data: RobotData) -> None:
         """Processing lidar for CycloneDDS"""
-        # Handled by CycloneDDSAdapter subscriptions
-        pass
+        try:
+            decoded_data = getattr(msg, 'decoded_data', None)
+            data = getattr(msg, 'data', None)
+
+            robot_data.lidar_data = LidarData(
+                positions=decoded_data.positions if decoded_data and hasattr(decoded_data, 'positions') else None,
+                uvs=decoded_data.uvs if decoded_data and hasattr(decoded_data, 'uvs') else None,
+                resolution=getattr(data, 'resolution', 0.0) if data else 0.0,
+                origin=getattr(data, 'origin', [0.0, 0.0, 0.0]) if data else [0.0, 0.0, 0.0],
+                stamp=getattr(data, 'stamp', 0.0) if data else 0.0,
+                width=getattr(data, 'width', None) if data else None,
+                src_size=getattr(data, 'src_size', None) if data else None,
+                compressed_data=getattr(msg, 'compressed_data', None)
+            )
+
+            self.ros2_publisher.publish_lidar_data(robot_data)
+            self.ros2_publisher.publish_voxel_data(robot_data)
+
+            # DEBUGGING LOGS --- IGNORE ---
+            # for attr in ['lidar_data']:
+            #         if getattr(robot_data, attr) is not None:
+            #             self.get_logger().info(f"\n\nrobot_data punya {attr} -- id: {robot_data.robot_id}\n\n")
+            #         else:
+            #             self.get_logger().info(f"\n\nrobot_data TIDAK punya {attr} -- id: {robot_data.robot_id}!!!\n\n")
+
+        except Exception as e:
+            self.get_logger().error(f"Error processing lidar data: {e}")
+
+    def _validate_float_list(self, data: list) -> bool:
+        """Validate a list of float values"""
+        return all(isinstance(x, (int, float, np.floating)) and math.isfinite(x) for x in data)
+
+    def _validate_float(self, value: Any) -> bool:
+        """Validate a float value"""
+        return isinstance(value, (int, float, np.floating)) and math.isfinite(value) 
 
     async def connect_robots(self) -> None:
         """Connect to robots using the configured adapter."""

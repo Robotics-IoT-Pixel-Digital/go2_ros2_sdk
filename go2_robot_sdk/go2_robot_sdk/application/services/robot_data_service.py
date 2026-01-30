@@ -40,26 +40,6 @@ class RobotDataService:
             elif topic == RTC_TOPIC["LOW_STATE"]:
                 self._process_low_state(msg, robot_data)
                 self.publisher.publish_joint_state(robot_data)
-            
-            # Handle CycloneDDS-specific topics
-            elif topic == 'cyclonedds/lidar_cloud':
-                # Pass-through for PointCloud2 from CycloneDDS
-                self.publisher.publish_pointcloud2_passthrough(msg, robot_id)
-            
-            elif topic == 'rt/lf/lowstate':
-                # CycloneDDS LowState message
-                self._process_low_state(msg, robot_data)
-                self.publisher.publish_joint_state(robot_data)
-            
-            elif topic == 'rt/lf/sportmodestate':
-                # CycloneDDS SportModeState message
-                self._process_sport_mode_state(msg, robot_data)
-                self.publisher.publish_robot_state(robot_data)
-            
-            elif topic == 'rt/utlidar/robot_pose':
-                # CycloneDDS robot pose/odometry message
-                self._process_odometry_data(msg, robot_data)
-                self.publisher.publish_odometry(robot_data)
 
         except Exception as e:
             logger.error(f"Error processing message: {e}")

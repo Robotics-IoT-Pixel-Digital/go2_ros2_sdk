@@ -63,8 +63,8 @@
                   sudo sysctl -w net.core.wmem_default=2147483647
                   sudo sysctl -w net.core.wmem_max=2147483647
             -->
-            <SocketReceiveBufferSize min="default" max="default" />
-            <SocketSendBufferSize min="default" max="default" />
+            <SocketReceiveBufferSize min="default" max="2147483647" />
+            <SocketSendBufferSize min="default" max="2147483647" />
         </Internal>
         <Tracing>
             <!-- Set to 'fine' or 'finest' for debugging connection issues -->
