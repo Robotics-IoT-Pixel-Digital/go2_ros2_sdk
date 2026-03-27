@@ -5,6 +5,7 @@ from launch_ros.actions import Node
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, SetEnvironmentVariable, DeclareLaunchArgument
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 
 
@@ -28,11 +29,12 @@ class Go2LaunchConfig:
         return {
             'joystick': os.path.join(self.go2_package_dir, 'config', 'joystick.yaml'),
             'twistmux': os.path.join(self.go2_package_dir, 'config', 'twist_mux.yaml'),
-            'rviz': os.path.join(self.go2_package_dir, 'config', 'cyclonedds_config.rviz'),
+            'rviz': os.path.join(self.go2_package_dir, 'config', 'navigation.rviz'),
             'urdf': os.path.join(self.go2_package_dir, 'urdf', 'go2.urdf'),
             'cyclonedds': os.path.join(self.go2_package_dir, 'config', 'cyclonedds.xml'),
             'aggregator': os.path.join(self.aggregator_package_dir, 'config', 'aggregator.yaml'),
-            'nav2': os.path.join(self.go2_package_dir, 'config', 'nav2_params.yaml'),
+            'nav2': os.path.join(self.go2_package_dir, 'config', 'params_navigation.yaml'),
+            'keepout': os.path.join(self.go2_package_dir, 'config', 'params_keepout.yaml'),
         }
     
 
@@ -47,9 +49,31 @@ class Go2NodeFactory:
         
     def create_launch_arguments(self) -> List[DeclareLaunchArgument]:
         return [
-            DeclareLaunchArgument('map', 
-                default_value='/home/ubuntu/Projects/UnitreeGo2/ros2_ws/src/go2_robot_sdk/maps/Lobby_1.yaml',
-                description='Absolute path to the map yaml formatted file'),
+            DeclareLaunchArgument(
+                'map', 
+                default_value='/home/ubuntu/Projects/UnitreeGo2/ros2_ws/src/go2_robot_sdk/maps/studio-1.yaml',
+                description='Absolute path to the map yaml formatted file'
+            ),
+            DeclareLaunchArgument(
+                'keepout_mask', 
+                default_value='false',
+                description='Enable/disable keepout mask[boolean]'
+            ),
+            DeclareLaunchArgument(
+                'keepout_map', 
+                default_value='/home/ubuntu/Downloads/LOBBY1_keepout(1).yaml',
+                description='Absolute path to the keepout mask map yaml file'
+            ),
+            DeclareLaunchArgument(
+                'rviz',
+                default_value='false',
+                description='Enable/disable RViz Visualization [boolean]'
+            ),
+            DeclareLaunchArgument(
+                'remote',
+                default_value='true',
+                description='Enable/disable remote control [boolean]'
+            ),
         ]
         
     def create_core_nodes(self) -> List[Node]:       
@@ -96,17 +120,18 @@ class Go2NodeFactory:
             Node(
                 package='pointcloud_to_laserscan',
                 executable='pointcloud_to_laserscan_node',
-                name='go2_pointcloud_to_laserscan',
                 remappings=[
                     ('cloud_in', cloud_topic),
                     ('scan', 'scan'),
                 ],
                 parameters=[{
                     'target_frame': 'base_link',
-                    'max_height': 0.8,  
-                    'range_max': 8.0,
-                    'scan_time': 0.2,
+                    'max_height': 0.8,
                     'angle_increment': 0.0087,
+                    'scan_time': 0.1,
+                    'range_min': 0.1,
+                    'range_max': 15.0,
+                    'use_inf': True,
                 }],
                 output='screen',
             ),
@@ -130,12 +155,14 @@ class Go2NodeFactory:
                 package='joy',
                 executable='joy_node',
                 parameters=[self.config.config_paths['joystick']],
+                condition=IfCondition(LaunchConfiguration('remote')),
             ),
             Node(
                 package='teleop_twist_joy',
                 executable='teleop_node',
                 name='go2_teleop_node',
                 parameters=[self.config.config_paths['twistmux']],
+                condition=IfCondition(LaunchConfiguration('remote')),
                 remappings=[('cmd_vel', 'cmd_vel_joy')], 
             ),
             Node(
@@ -154,10 +181,46 @@ class Go2NodeFactory:
                 name='go2_rviz2',
                 output='screen',
                 arguments=['-d', self.config.config_paths['rviz']],
+                condition=IfCondition(LaunchConfiguration('rviz')),
                 parameters=[{'use_sim_time': False}]
             ),
         ]
     
+    def create_keepout_nodes(self) -> List[Node]:
+        return [
+            Node(
+                package='nav2_map_server',
+                executable='map_server',
+                name='keepout_filter_mask_server',
+                output='screen',
+                condition=IfCondition(LaunchConfiguration('keepout_mask')),
+                parameters=[
+                    {'yaml_filename': LaunchConfiguration('keepout_map')},
+                    self.config.config_paths['keepout'],
+                ],
+            ),
+            Node(
+                package='nav2_map_server',
+                executable='costmap_filter_info_server',
+                name='keepout_costmap_filter_info_server',
+                output='screen',
+                condition=IfCondition(LaunchConfiguration('keepout_mask')),
+                parameters=[self.config.config_paths['keepout']],
+            ),
+            Node(
+                package='nav2_lifecycle_manager',
+                executable='lifecycle_manager',
+                name='lifecycle_manager_keepout_zone',
+                output='screen',
+                condition=IfCondition(LaunchConfiguration('keepout_mask')),
+                parameters=[
+                    {'use_sim_time': False}, {'autostart': True},
+                    {'node_names': ['keepout_filter_mask_server', 
+                                    'keepout_costmap_filter_info_server']}
+                ],
+            ),
+        ]
+
     def create_nav2_launches(self) -> List[IncludeLaunchDescription]:
         return [
             IncludeLaunchDescription(
@@ -202,11 +265,13 @@ def generate_launch_description():
     laserscan_nodes = factory.create_laserscan_nodes()
     teleop_nodes = factory.create_teleop_nodes()
     visualization_nodes = factory.create_visualization_nodes()
+    keepout_nodes = factory.create_keepout_nodes()
     nav2_launches = factory.create_nav2_launches()
     localization_launches = factory.create_localization_launches()  
 
-    print(f"🔧 Setting up CycloneDDS environment")
+    print(f"🔧 Setting up CycloneDDS environment 🔧")
     print(f"   Config file: {config.config_paths['cyclonedds']}")
+
     env_setup = [
         SetEnvironmentVariable('RMW_IMPLEMENTATION', 'rmw_cyclonedds_cpp'),
         SetEnvironmentVariable('CYCLONEDDS_URI', f"file://{config.config_paths['cyclonedds']}"),
@@ -221,6 +286,7 @@ def generate_launch_description():
         laserscan_nodes +
         teleop_nodes +
         visualization_nodes + 
+        keepout_nodes +
         nav2_launches + 
         localization_launches
     )

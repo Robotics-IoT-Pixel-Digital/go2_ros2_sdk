@@ -6,7 +6,6 @@
     scale_linear:
       x: 0.5
       y: 0.5
-
     axis_angular:
       yaw: 6
     scale_angular:
@@ -24,6 +23,7 @@
         timeout : 0.5
         priority: 5
       navigation:
-        topic   : cmd_vel
+        # topic   : cmd_vel
+        topic   : cmd_vel_nav
         timeout : 0.5
         priority: 10

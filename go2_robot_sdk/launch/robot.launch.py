@@ -45,19 +45,16 @@ class Go2LaunchConfig:
     
     def _determine_connection_mode(self) -> str:
         """Determine connection mode based on IP list and connection type"""
-        # CycloneDDS with single robot should also use single mode
         if len(self.robot_ip_list) > 1:
             return "multi"
         return "single"
     
     def _get_rviz_config(self) -> str:
         """Get appropriate RViz configuration file"""
-        if self.conn_type == 'cyclonedds':
-            return "cyclonedds_config.rviz"
-        elif self.conn_mode == 'single':
-            return "single_robot_conf.rviz"
+        if self.conn_mode == 'single':
+            return "00_single_robot.rviz"
         else:
-            return "multi_robot_conf.rviz"
+            return "00_multi_robot.rviz"
     
     def _get_urdf_file(self) -> str:
         """Get appropriate URDF file"""
@@ -68,8 +65,8 @@ class Go2LaunchConfig:
         return {
             'joystick': os.path.join(self.package_dir, 'config', 'joystick.yaml'),
             'twist_mux': os.path.join(self.package_dir, 'config', 'twist_mux.yaml'),
-            'slam': os.path.join(self.package_dir, 'config', 'mapper_params_online_async.yaml'),
-            'nav2': os.path.join(self.package_dir, 'config', 'nav2_params.yaml'),
+            'slam': os.path.join(self.package_dir, 'config', 'params_mapping.yaml'),
+            'nav2': os.path.join(self.package_dir, 'config', 'params_navigation.yaml'),
             'rviz': os.path.join(self.package_dir, 'config', self.rviz_config),
             'urdf': os.path.join(self.package_dir, 'urdf', self.urdf_file),
             'cyclonedds': os.path.join(self.package_dir, 'config', 'cyclonedds.xml'),

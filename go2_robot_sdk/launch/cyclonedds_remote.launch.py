@@ -29,12 +29,9 @@ class Go2LaunchConfig:
         return {
             'joystick': os.path.join(self.go2_package_dir, 'config', 'joystick.yaml'),
             'twistmux': os.path.join(self.go2_package_dir, 'config', 'twist_mux.yaml'),
-            'slam': os.path.join(self.go2_package_dir, 'config', 'params_mapping.yaml'),
-            'rviz': os.path.join(self.go2_package_dir, 'config', 'mapping.rviz'),
             'urdf': os.path.join(self.go2_package_dir, 'urdf', 'go2.urdf'),
             'cyclonedds': os.path.join(self.go2_package_dir, 'config', 'cyclonedds.xml'),
             'aggregator': os.path.join(self.aggregator_package_dir, 'config', 'aggregator.yaml'),
-            'nav2': os.path.join(self.go2_package_dir, 'config', 'params_navigation.yaml'),
         }
     
 
@@ -50,14 +47,10 @@ class Go2NodeFactory:
     def create_launch_arguments(self) -> List[DeclareLaunchArgument]:
         return [
             DeclareLaunchArgument(
-                'nav2',
-                default_value='false',
-                description='Enable/disable Nav2 navigation nodes [boolean]'
-            ),
-            DeclareLaunchArgument(
-                'rviz',
+                'visualization',
                 default_value='true',
-                description='Enable/disable RViz Visualization [boolean]'
+                description='Enable/disable Visualization, including RViz, ' \
+                            'Robot State Publisher, and LaserScan [boolean]'
             )
         ]
 
@@ -88,12 +81,14 @@ class Go2NodeFactory:
                 name='go2_robot_state_publisher',
                 output='screen',
                 parameters=[{'robot_description': robot_desc}],
+                condition=IfCondition(LaunchConfiguration('visualization')),
                 arguments=[self.config.config_paths['urdf']]
             ),
             Node(
                 package='tf2_ros',
                 executable='static_transform_publisher',
                 name='utlidar_lidar_tf',
+                condition=IfCondition(LaunchConfiguration('visualization')),
                 arguments=['0', '0', '0', '0', '0', '0', 'radar', 'utlidar_lidar']
             ),
         ]
@@ -110,14 +105,13 @@ class Go2NodeFactory:
                     ('cloud_in', cloud_topic),
                     ('scan', 'scan'),
                 ],
+                condition=IfCondition(LaunchConfiguration('visualization')),
                 parameters=[{
                     'target_frame': 'base_link',
-                    'max_height': 0.8,
+                    'max_height': 0.8,  
+                    'range_max': 8.0,
+                    'scan_time': 0.2,
                     'angle_increment': 0.0087,
-                    'scan_time': 0.1,
-                    'range_min': 0.1,
-                    'range_max': 15.0,
-                    'use_inf': True,
                 }],
                 output='screen',
             ),
@@ -130,6 +124,7 @@ class Go2NodeFactory:
                 namespace="aggregator",
                 executable="aggregator",
                 name='go2_pointcloud2_aggregator',
+                condition=IfCondition(LaunchConfiguration('visualization')),
                 parameters=[self.config.config_paths['aggregator']],
                 output='screen',
             ),
@@ -158,48 +153,14 @@ class Go2NodeFactory:
         ]
     
     def create_visualization_nodes(self) -> List[Node]:
-        rviz_args = LaunchConfiguration('rviz')
-        
         return [
             Node(
                 package='rviz2',
                 executable='rviz2',
                 name='go2_rviz2',
                 output='screen',
-                arguments=['-d', self.config.config_paths['rviz']],
-                condition=IfCondition(rviz_args),
+                condition=IfCondition(LaunchConfiguration('visualization')),
                 parameters=[{'use_sim_time': False}]
-            ),
-        ]
-    
-    def create_slam_launches(self) -> List[IncludeLaunchDescription]:
-        return [
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource([
-                    os.path.join(get_package_share_directory('slam_toolbox'),
-                                'launch', 'online_async_launch.py')
-                ]),
-                launch_arguments={
-                    'slam_params_file': self.config.config_paths['slam'],
-                    'use_sim_time': 'false',
-                }.items(),
-            ),
-        ]
-    
-    def create_nav2_launches(self) -> List[IncludeLaunchDescription]:
-        nav2_args = LaunchConfiguration('nav2')
-
-        return [
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource([
-                    os.path.join(get_package_share_directory('nav2_bringup'),
-                                'launch', 'navigation_launch.py')
-                ]),
-                launch_arguments={
-                    'params_file': self.config.config_paths['nav2'],
-                    'use_sim_time': 'false',
-                }.items(),
-                condition=IfCondition(nav2_args)
             ),
         ]
     
@@ -216,8 +177,6 @@ def generate_launch_description():
     laserscan_nodes = factory.create_laserscan_nodes()
     teleop_nodes = factory.create_teleop_nodes()
     visualization_nodes = factory.create_visualization_nodes()
-    slam_launches = factory.create_slam_launches()
-    nav2_launches = factory.create_nav2_launches()
 
     print(f"🔧 Setting up CycloneDDS environment")
     print(f"   Config file: {config.config_paths['cyclonedds']}")
@@ -234,9 +193,7 @@ def generate_launch_description():
         aggregate_nodes+
         laserscan_nodes +
         teleop_nodes +
-        visualization_nodes +
-        slam_launches + 
-        nav2_launches
+        visualization_nodes 
     )
     
     return LaunchDescription(launch_entities)

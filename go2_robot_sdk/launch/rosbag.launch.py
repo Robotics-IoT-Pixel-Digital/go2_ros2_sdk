@@ -18,7 +18,6 @@ class Go2Rosbag:
         self.rosbag_dir = LaunchConfiguration('rosbag_dir')
         self.play_topics = LaunchConfiguration('play_topics')
         self.slam_params = LaunchConfiguration('slam_params')
-        self.rviz_config = LaunchConfiguration('rviz_config')
         self.use_sim_time = LaunchConfiguration('use_sim_time')
 
 
@@ -36,13 +35,8 @@ class Go2Rosbag:
             ),
             DeclareLaunchArgument(
                 'slam_params',
-                default_value='/home/ubuntu/Projects/UnitreeGo2/ros2_ws/src/go2_robot_sdk/config/mapper_params_online_async_cyclonedds.yaml',
+                default_value='/home/ubuntu/Projects/UnitreeGo2/ros2_ws/src/go2_robot_sdk/config/params_mapping.yaml',
                 description='SLAM Toolbox parameter file'
-            ),
-            DeclareLaunchArgument(
-                'rviz_config',
-                default_value='/home/ubuntu/Projects/UnitreeGo2/ros2_ws/src/go2_robot_sdk/config/rosbag.rviz',
-                description='RViz config'
             ),
             DeclareLaunchArgument(
                 'use_sim_time',
@@ -83,7 +77,6 @@ class Go2Rosbag:
         return Node(
             package='rviz2',
             executable='rviz2',
-            arguments=['-d', self.rviz_config],
             parameters=[{'use_sim_time': self.use_sim_time}],
             output='screen'
         )

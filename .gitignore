@@ -2,7 +2,8 @@ build
 log
 install
 .vscode
-__pycache__
+__pycache__/
+*.pyc
 .env
 .DS_Store
 go2_robot_sdk/.coverage

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.10)
 project(unitree_go)
 
 if(POLICY CMP0148)
@@ -23,6 +23,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/SportModeState.msg"
   "msg/LowState.msg"
   "msg/VoxelMapCompressed.msg"
+  "msg/Go2FrontVideoData.msg"
   
   DEPENDENCIES geometry_msgs
 )

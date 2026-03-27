@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.10)
 project(go2_interfaces)
 
 # Fix for CMake policy CMP0148 warning
