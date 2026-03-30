@@ -129,11 +129,15 @@ detect_environment
 DEFAULT_ROBOT_IP="192.168.123.161"
 DEFAULT_PC_IP="192.168.123.100"
 DEFAULT_INTERFACE=""
+DEFAULT_ROS_DOMAIN_ID="0"
+DEFAULT_ROS_LOCALHOST_ONLY="0"
 
 # Parse arguments
 ROBOT_IP=${1:-$DEFAULT_ROBOT_IP}
 PC_IP=${2:-$DEFAULT_PC_IP}
 INTERFACE=${3:-$DEFAULT_INTERFACE}
+ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-$DEFAULT_ROS_DOMAIN_ID}
+ROS_LOCALHOST_ONLY=${ROS_LOCALHOST_ONLY:-$DEFAULT_ROS_LOCALHOST_ONLY}
 
 # Get the directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -152,6 +156,8 @@ fi
 export ROBOT_IP="${ROBOT_IP}"
 export CONN_TYPE="cyclonedds"
 export RMW_IMPLEMENTATION="rmw_cyclonedds_cpp"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID}"
+export ROS_LOCALHOST_ONLY="${ROS_LOCALHOST_ONLY}"
 
 if [ -f "${CYCLONEDDS_CONFIG}" ]; then
     export CYCLONEDDS_URI="file://${CYCLONEDDS_CONFIG}"
@@ -165,6 +171,8 @@ echo -e "${GREEN}Environment Variables Set:${NC}"
 echo -e "  ROBOT_IP           = ${ROBOT_IP}"
 echo -e "  CONN_TYPE          = ${CONN_TYPE}"
 echo -e "  RMW_IMPLEMENTATION = ${RMW_IMPLEMENTATION}"
+echo -e "  ROS_DOMAIN_ID      = ${ROS_DOMAIN_ID}"
+echo -e "  ROS_LOCALHOST_ONLY = ${ROS_LOCALHOST_ONLY}"
 echo -e "  CYCLONEDDS_URI     = ${CYCLONEDDS_URI:-<not set>}"
 echo ""
 
