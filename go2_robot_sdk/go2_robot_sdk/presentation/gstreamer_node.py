@@ -18,9 +18,9 @@ class Go2GstreamerNode(Node):
         self.declare_parameter('latency_ms', 40)
         self.declare_parameter('timer_period', 0.05)
         self.declare_parameter('jpeg_quality', 90)
-        self.declare_parameter('output_width', 0)   # rekomendasi low-latency: 640
-        self.declare_parameter('output_height', 0)  # rekomendasi low-latency: 360
-        self.declare_parameter('output_fps', 0)     # rekomendasi low-latency: 10-15
+        self.declare_parameter('output_width', 640)   # rekomendasi low-latency: 640
+        self.declare_parameter('output_height', 360)  # rekomendasi low-latency: 360
+        self.declare_parameter('output_fps', 20)     # rekomendasi low-latency: 10-15
         self.declare_parameter('pipeline', '')
 
         image_topic = str(self.get_parameter('image_topic').value)

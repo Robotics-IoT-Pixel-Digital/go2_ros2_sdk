@@ -23,7 +23,8 @@
             -->
             <Interfaces>
                 <NetworkInterface name="enP8p1s0" priority="default" multicast="true" />
-                <NetworkInterface name="wlP1p1s0" priority="default" multicast="true" />
+                <!-- <NetworkInterface name="wlP1p1s0" priority="default" multicast="true" /> -->
+                <NetworkInterface address="10.1.33.208" priority="default" multicast="true" /> 
             </Interfaces>
             <!-- Enable multicast for better discovery -->
             <AllowMulticast>true</AllowMulticast>
@@ -38,6 +39,7 @@
             -->
             <Peers>
                 <Peer address="192.168.123.161"/>
+                <Peer address="10.1.2.33"/>
                 <Peer address="localhost"/>
             </Peers>
             <ParticipantIndex>auto</ParticipantIndex>

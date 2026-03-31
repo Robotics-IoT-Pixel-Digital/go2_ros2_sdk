@@ -1,0 +1,15 @@
+[Unit]
+Description=ROS2 Auto Start Service
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/root/env_start_ros.sh
+RemainAfterExit=yes
+User=root
+
+# Penting: supaya environment clean
+Environment="HOME=/root"
+
+[Install]
+WantedBy=multi-user.target

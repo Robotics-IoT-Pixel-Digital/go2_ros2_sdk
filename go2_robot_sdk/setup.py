@@ -41,7 +41,8 @@ setup(
     entry_points={
         'console_scripts': [
             'go2_driver_node = go2_robot_sdk.main:main',
-            'go2_gstreamer_node   = go2_robot_sdk.presentation.go2_gstreamer_node:main',
+            'go2_gstreamer_node = go2_robot_sdk.presentation.gstreamer_node:main',
+            'go2_gstreamer_jetson_node = go2_robot_sdk.presentation.gstreamer_jetson_node:main',
         ],
     },
 )
