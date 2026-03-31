@@ -102,7 +102,7 @@ def main(args=None):
     rclpy.init(args=args)
     node = None
     try:
-        node = Go2GstreamerNode()
+        node = Go2GstreamerJetsonNode()
         rclpy.spin(node)
     except Exception as exc:
         if node: node.get_logger().error(f'Node error: {exc}')
