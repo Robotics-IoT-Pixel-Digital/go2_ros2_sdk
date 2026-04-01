@@ -51,7 +51,7 @@ class Go2NodeFactory:
         return [
             DeclareLaunchArgument(
                 'map', 
-                default_value='/home/ubuntu/Projects/UnitreeGo2/ros2_ws/src/go2_robot_sdk/maps/Studio.yaml',
+                default_value=os.path.join(os.getcwd(), 'src', 'go2_robot_sdk', 'maps', 'Studio.yaml'),
                 description='Absolute path to the map yaml formatted file'
             ),
             DeclareLaunchArgument(
@@ -71,7 +71,7 @@ class Go2NodeFactory:
             ),
             DeclareLaunchArgument(
                 'remote',
-                default_value='true',
+                default_value='false',
                 description='Enable/disable remote control [boolean]'
             ),
         ]

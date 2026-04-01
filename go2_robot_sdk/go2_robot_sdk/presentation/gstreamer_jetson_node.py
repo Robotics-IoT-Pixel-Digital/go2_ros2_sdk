@@ -1,6 +1,7 @@
 import cv2
 import rclpy
 import os
+import threading
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
 
@@ -17,11 +18,11 @@ class Go2GstreamerJetsonNode(Node):
         self.declare_parameter('port', 1720)
         self.declare_parameter('multicast_iface', 'enP8p1s0') # Interface sesuai tes CLI Anda
         self.declare_parameter('buffer_size', 524288)
-        self.declare_parameter('latency_ms', 40)
-        self.declare_parameter('timer_period', 0.03) 
-        self.declare_parameter('jpeg_quality', 90)
-        self.declare_parameter('output_width', 640)   
-        self.declare_parameter('output_height', 360)  
+        self.declare_parameter('latency_ms', 10)       # turun dari 40 → kurangi buffer jitter
+        self.declare_parameter('timer_period', 0.015)  # ~66 Hz polling, turun dari 0.03
+        self.declare_parameter('jpeg_quality', 60)     # turun dari 90 → encoding jauh lebih cepat
+        self.declare_parameter('output_width', 480)    # turun dari 640
+        self.declare_parameter('output_height', 270)   # turun dari 360
         self.declare_parameter('output_fps', 20)      
         self.declare_parameter('pipeline', '')
 
@@ -35,7 +36,7 @@ class Go2GstreamerJetsonNode(Node):
         self.last_publish_ns = 0
         timer_period = float(self.get_parameter('timer_period').value)
 
-        self.pub = self.create_publisher(CompressedImage, image_topic, 10)
+        self.pub = self.create_publisher(CompressedImage, image_topic,3)  # queue=1, buang frame lama
 
         self.pipeline = str(self.get_parameter('pipeline').value).strip() or self._build_pipeline()
         self.cap = cv2.VideoCapture(self.pipeline, cv2.CAP_GSTREAMER)
@@ -43,6 +44,14 @@ class Go2GstreamerJetsonNode(Node):
         if not self.cap.isOpened():
             self.get_logger().error(f'Failed to open GStreamer pipeline: {self.pipeline}')
             raise RuntimeError('GStreamer pipeline could not be opened')
+
+        # Thread terpisah membaca frame terus-menerus agar cap.read() tidak
+        # memblokir timer callback ROS → latensi lebih rendah
+        self._latest_frame = None
+        self._frame_lock = threading.Lock()
+        self._running = True
+        self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
+        self._reader_thread.start()
 
         self.timer = self.create_timer(timer_period, self.loop)
         self.get_logger().info(f'GStreamer Jetson node started, publishing to {image_topic}')
@@ -59,18 +68,30 @@ class Go2GstreamerJetsonNode(Node):
             '! application/x-rtp, media=video, clock-rate=90000, encoding-name=H264, payload=96 '
             f'! rtpjitterbuffer latency={latency} drop-on-latency=true '
             '! rtph264depay '
-            '! h264parse '
+            '! h264parse config-interval=-1 '
             '! nvv4l2decoder enable-max-performance=1 '
             '! nvvidconv '
             '! video/x-raw, format=BGRx '
             '! videoconvert '
             '! video/x-raw, format=BGR '
-            '! appsink drop=true max-buffers=1 sync=false'
+            '! appsink drop=true max-buffers=1 sync=false emit-signals=false'
         )
 
+    def _reader_loop(self):
+        """Baca frame dari GStreamer secepat mungkin di thread latar."""
+        while self._running:
+            ret, frame = self.cap.read()
+            if ret and frame is not None:
+                with self._frame_lock:
+                    self._latest_frame = frame
+
     def loop(self):
-        ret, frame = self.cap.read()
-        if not ret or frame is None:
+        # Ambil frame terbaru tanpa blocking
+        with self._frame_lock:
+            frame = self._latest_frame
+            self._latest_frame = None  # konsumsi → hindari publish frame duplikat
+
+        if frame is None:
             return
 
         now_ns = self.get_clock().now().nanoseconds
@@ -79,10 +100,12 @@ class Go2GstreamerJetsonNode(Node):
                 return
 
         if self.output_width > 0 and self.output_height > 0:
-            frame = cv2.resize(frame, (self.output_width, self.output_height), interpolation=cv2.INTER_AREA)
+            # INTER_LINEAR ~2× lebih cepat dari INTER_AREA, kualitas cukup
+            frame = cv2.resize(frame, (self.output_width, self.output_height),
+                               interpolation=cv2.INTER_LINEAR)
 
         encoded, jpeg = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality])
-        
+
         if encoded:
             msg = CompressedImage()
             msg.header.stamp = self.get_clock().now().to_msg()
@@ -94,6 +117,9 @@ class Go2GstreamerJetsonNode(Node):
             self.last_publish_ns = now_ns
 
     def destroy_node(self):
+        self._running = False
+        if hasattr(self, '_reader_thread'):
+            self._reader_thread.join(timeout=1.0)
         if hasattr(self, 'cap') and self.cap is not None:
             self.cap.release()
         super().destroy_node()
