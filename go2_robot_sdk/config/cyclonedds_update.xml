@@ -16,16 +16,20 @@
     <Domain id="0">
         <General>
             <!-- 
-                Network interface configuration for Go2 Ethernet connection.
-                Auto-detect interface or explicitly bind to specific interface.
+                Network interface configuration for Jetson gateway mode.
+                Explicitly bind to Ethernet + Wi-Fi so DDS traffic can flow
+                between robot network and application network.
+                If your interface names differ, update them accordingly.
             -->
             <Interfaces>
-                <NetworkInterface autodetermine="true" priority="default" multicast="true" />
+                <!-- <NetworkInterface address="192.168.123.171" priority="default" multicast="true" /> -->
+                <NetworkInterface name="enP8p1s0" priority="default" multicast="true" />
+                <!-- <NetworkInterface name="wlP1p1s0" priority="default" multicast="true" /> -->
+                <!-- <NetworkInterface address="10.1.33.208" priority="default" multicast="true" />  -->
             </Interfaces>
             <!-- Enable multicast for better discovery -->
             <AllowMulticast>true</AllowMulticast>
             <EnableMulticastLoopback>true</EnableMulticastLoopback>
-            <!-- Increase fragment size for better compatibility -->
             <FragmentSize>1200</FragmentSize>
         </General>
         <Discovery>
@@ -36,6 +40,7 @@
             -->
             <Peers>
                 <Peer address="192.168.123.161"/>
+                <!-- <Peer address="10.1.2.33"/> -->
                 <Peer address="localhost"/>
             </Peers>
             <ParticipantIndex>auto</ParticipantIndex>

@@ -7,7 +7,6 @@ Panels:
         - /Global Options1
         - /Status1
         - /LaserScan1/Topic1
-        - /Map1
         - /Map1/Topic1
         - /Odometry1/Topic1
       Splitter Ratio: 0.5
@@ -345,7 +344,7 @@ Visualization Manager:
           Scale: 1
           Value: true
         Value: true
-      Enabled: false
+      Enabled: true
       Keep: 5
       Name: Odometry
       Position Tolerance: 0.10000000149011612
@@ -366,7 +365,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /odom
-      Value: false
+      Value: true
     - Alpha: 1
       Buffer Length: 1
       Class: rviz_default_plugins/Path
@@ -450,7 +449,7 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 100.5428237915039
+      Scale: 77.86035919189453
       Target Frame: base_link
       Value: TopDownOrtho (rviz_default_plugins)
       X: 0

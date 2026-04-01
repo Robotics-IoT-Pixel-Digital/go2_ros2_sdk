@@ -51,7 +51,7 @@ class Go2NodeFactory:
         return [
             DeclareLaunchArgument(
                 'map', 
-                default_value='/home/ubuntu/Projects/UnitreeGo2/ros2_ws/src/go2_robot_sdk/maps/studio-1.yaml',
+                default_value='/home/ubuntu/Projects/UnitreeGo2/ros2_ws/src/go2_robot_sdk/maps/Studio.yaml',
                 description='Absolute path to the map yaml formatted file'
             ),
             DeclareLaunchArgument(
@@ -101,7 +101,7 @@ class Go2NodeFactory:
                 package='robot_state_publisher',
                 executable='robot_state_publisher',
                 name='go2_robot_state_publisher',
-                output='screen',
+                # output='screen',
                 parameters=[{'robot_description': robot_desc}],
                 arguments=[self.config.config_paths['urdf']]
             ),
@@ -132,6 +132,8 @@ class Go2NodeFactory:
                     'range_min': 0.1,
                     'range_max': 15.0,
                     'use_inf': True,
+                    # 'qos_overrides./cloud_in.subscription.reliability': 'best_effort',
+                    # 'qos_overrides./scan.publisher.reliability': 'reliable',
                 }],
                 output='screen',
             ),
@@ -145,7 +147,7 @@ class Go2NodeFactory:
                 executable="aggregator",
                 name='go2_pointcloud2_aggregator',
                 parameters=[self.config.config_paths['aggregator']],
-                output='screen',
+                # output='screen',
             ),
         ]
 
@@ -168,7 +170,7 @@ class Go2NodeFactory:
             Node(
                 package='twist_mux',
                 executable='twist_mux',
-                output='screen',
+                # output='screen',
                 parameters=[self.config.config_paths['twistmux']],
             ),
         ]
@@ -183,6 +185,15 @@ class Go2NodeFactory:
                 arguments=['-d', self.config.config_paths['rviz']],
                 condition=IfCondition(LaunchConfiguration('rviz')),
                 parameters=[{'use_sim_time': False}]
+            ),
+        ]
+    
+    def create_camera_nodes(self) -> List[Node]:
+        return [
+            Node(
+                package='go2_robot_sdk',
+                executable='go2_gstreamer_jetson_node',
+                name='go2_gstreamer_jetson_node'
             ),
         ]
     
@@ -265,6 +276,7 @@ def generate_launch_description():
     laserscan_nodes = factory.create_laserscan_nodes()
     teleop_nodes = factory.create_teleop_nodes()
     visualization_nodes = factory.create_visualization_nodes()
+    camera_nodes = factory.create_camera_nodes()
     keepout_nodes = factory.create_keepout_nodes()
     nav2_launches = factory.create_nav2_launches()
     localization_launches = factory.create_localization_launches()  
@@ -286,6 +298,7 @@ def generate_launch_description():
         laserscan_nodes +
         teleop_nodes +
         visualization_nodes + 
+        camera_nodes +
         keepout_nodes +
         nav2_launches + 
         localization_launches
