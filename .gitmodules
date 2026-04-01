@@ -2,3 +2,8 @@
 	path = go2_robot_sdk/external_lib/aioice
 	url = https://github.com/legion1581/aioice.git
 	branch = go2
+
+[submodule "pointcloud2_aggregator"]
+	path = pointcloud2_aggregator
+	url = https://github.com/ucl-delta/pointcloud2_aggregator.git
+	branch = main
