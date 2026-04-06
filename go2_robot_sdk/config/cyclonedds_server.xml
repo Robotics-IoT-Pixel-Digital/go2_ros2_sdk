@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  CycloneDDS Configuration for Server/Laptop Side (Wi-Fi to Jetson)
+
+  Server Wi-Fi interface: wlp3s0
+  Server IP: 10.1.2.33/18
+  Jetson IP: 10.1.33.208
+-->
+<CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
+	<Domain id="0">
+		<General>
+			<Interfaces>
+				<NetworkInterface name="wlp3s0" priority="default" multicast="true" />
+			</Interfaces>
+			<AllowMulticast>true</AllowMulticast>
+			<EnableMulticastLoopback>true</EnableMulticastLoopback>
+			<FragmentSize>1200</FragmentSize>
+		</General>
+
+		<Discovery>
+			<Peers>
+				<Peer address="10.1.33.208"/>
+				<Peer address="localhost"/>
+			</Peers>
+			<ParticipantIndex>auto</ParticipantIndex>
+			<MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
+			<SPDPInterval>1s</SPDPInterval>
+			<EnableTopicDiscoveryEndpoints>true</EnableTopicDiscoveryEndpoints>
+		</Discovery>
+
+		<Compatibility>
+			<StandardsConformance>lax</StandardsConformance>
+		</Compatibility>
+
+		<Internal>
+			<Watermarks>
+				<WhcHigh>500kB</WhcHigh>
+			</Watermarks>
+			<SocketReceiveBufferSize min="default" max="2147483647" />
+			<SocketSendBufferSize min="default" max="2147483647" />
+		</Internal>
+
+		<Tracing>
+			<Verbosity>warning</Verbosity>
+			<OutputFile>stderr</OutputFile>
+		</Tracing>
+	</Domain>
+</CycloneDDS>

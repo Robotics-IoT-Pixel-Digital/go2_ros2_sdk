@@ -31,7 +31,7 @@ class Go2LaunchConfig:
             'twistmux': os.path.join(self.go2_package_dir, 'config', 'twist_mux.yaml'),
             'rviz': os.path.join(self.go2_package_dir, 'config', 'navigation.rviz'),
             'urdf': os.path.join(self.go2_package_dir, 'urdf', 'go2.urdf'),
-            'cyclonedds': os.path.join(self.go2_package_dir, 'config', 'cyclonedds.xml'),
+            'cyclonedds': os.path.join(self.go2_package_dir, 'config', 'cyclonedds_jetson.xml'),
             'aggregator': os.path.join(self.aggregator_package_dir, 'config', 'aggregator.yaml'),
             'nav2': os.path.join(self.go2_package_dir, 'config', 'params_navigation.yaml'),
             'keepout': os.path.join(self.go2_package_dir, 'config', 'params_keepout.yaml'),
@@ -232,6 +232,16 @@ class Go2NodeFactory:
             ),
         ]
 
+    def create_demo_listener_nodes(self) -> List[Node]:
+        return [
+            Node(
+                package='demo_nodes_cpp',
+                executable='listener',
+                name='demo_listener',
+                output='screen',
+            ),
+        ]
+    
     def create_nav2_launches(self) -> List[IncludeLaunchDescription]:
         return [
             IncludeLaunchDescription(
@@ -278,6 +288,7 @@ def generate_launch_description():
     visualization_nodes = factory.create_visualization_nodes()
     camera_nodes = factory.create_camera_nodes()
     keepout_nodes = factory.create_keepout_nodes()
+    demo_listener_nodes = factory.create_demo_listener_nodes()
     nav2_launches = factory.create_nav2_launches()
     localization_launches = factory.create_localization_launches()  
 
@@ -285,6 +296,8 @@ def generate_launch_description():
     print(f"   Config file: {config.config_paths['cyclonedds']}")
 
     env_setup = [
+        SetEnvironmentVariable('ROS_DOMAIN_ID', '0'),
+        SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
         SetEnvironmentVariable('RMW_IMPLEMENTATION', 'rmw_cyclonedds_cpp'),
         SetEnvironmentVariable('CYCLONEDDS_URI', f"file://{config.config_paths['cyclonedds']}"),
     ]
@@ -300,8 +313,9 @@ def generate_launch_description():
         visualization_nodes + 
         camera_nodes +
         keepout_nodes +
-        nav2_launches + 
-        localization_launches
+        demo_listener_nodes 
+        # nav2_launches + 
+        # localization_launches
     )
     
     return LaunchDescription(launch_entities)
