@@ -1,3 +1,7 @@
+<!--
+  BIG NOTES: MASIH PERLU TROUBLESHOOTING RMW_IMPLEMENTATION PADA SERVER SIDE!
+-->
+
 <?xml version="1.0" encoding="UTF-8" ?>
 <!--
   CycloneDDS Configuration for Server/Laptop Side (Wi-Fi to Jetson)
@@ -24,6 +28,10 @@
 			</Peers>
 			<ParticipantIndex>auto</ParticipantIndex>
 			<MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
+			<!-- LeaseDuration: how long a remote participant is considered alive
+			     without receiving announcements. Shorter = faster re-discovery
+			     after remote restart. Default is ~11s. -->
+			<LeaseDuration>5s</LeaseDuration>
 			<SPDPInterval>1s</SPDPInterval>
 			<EnableTopicDiscoveryEndpoints>true</EnableTopicDiscoveryEndpoints>
 		</Discovery>

@@ -44,6 +44,10 @@
             <ParticipantIndex>auto</ParticipantIndex>
             <MaxAutoParticipantIndex>120</MaxAutoParticipantIndex>
             <!-- More aggressive discovery settings -->
+            <!-- LeaseDuration: how long a remote participant is considered alive
+                 without receiving announcements. Shorter = faster re-discovery
+                 after remote restart. Default is ~11s. -->
+			<LeaseDuration>5s</LeaseDuration>
             <SPDPInterval>1s</SPDPInterval>
             <EnableTopicDiscoveryEndpoints>true</EnableTopicDiscoveryEndpoints>
         </Discovery>

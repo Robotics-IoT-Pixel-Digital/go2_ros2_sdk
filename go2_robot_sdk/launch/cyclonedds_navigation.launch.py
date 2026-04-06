@@ -231,16 +231,6 @@ class Go2NodeFactory:
                 ],
             ),
         ]
-
-    def create_demo_listener_nodes(self) -> List[Node]:
-        return [
-            Node(
-                package='demo_nodes_cpp',
-                executable='listener',
-                name='demo_listener',
-                output='screen',
-            ),
-        ]
     
     def create_nav2_launches(self) -> List[IncludeLaunchDescription]:
         return [
@@ -288,7 +278,6 @@ def generate_launch_description():
     visualization_nodes = factory.create_visualization_nodes()
     camera_nodes = factory.create_camera_nodes()
     keepout_nodes = factory.create_keepout_nodes()
-    demo_listener_nodes = factory.create_demo_listener_nodes()
     nav2_launches = factory.create_nav2_launches()
     localization_launches = factory.create_localization_launches()  
 
@@ -313,9 +302,8 @@ def generate_launch_description():
         visualization_nodes + 
         camera_nodes +
         keepout_nodes +
-        demo_listener_nodes 
-        # nav2_launches + 
-        # localization_launches
+        nav2_launches + 
+        localization_launches
     )
     
     return LaunchDescription(launch_entities)
