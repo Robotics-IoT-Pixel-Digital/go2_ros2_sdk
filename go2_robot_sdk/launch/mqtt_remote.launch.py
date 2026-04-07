@@ -3,9 +3,7 @@ from typing import List
 from ament_index_python.packages import get_package_share_directory
 from launch_ros.actions import Node
 from launch import LaunchDescription
-from launch.actions import SetEnvironmentVariable, DeclareLaunchArgument
-from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration
+from launch.actions import SetEnvironmentVariable
 
 
 class Go2LaunchConfig:
@@ -15,18 +13,17 @@ class Go2LaunchConfig:
         self.robot_ip = os.getenv('ROBOT_IP', '192.168.123.161')
         self.conn_type = os.getenv('CONN_TYPE', 'cyclonedds')
         self.conn_mode = "single"
-        
+
         self.go2_package_dir = get_package_share_directory('go2_robot_sdk')
         self.aggregator_package_dir = get_package_share_directory('pointcloud2_aggregator')
         self.config_paths = self._get_config_paths()
-        
+
         print(f"        Go2 Launch Configuration") 
         print(f"        Robot IP    : {self.robot_ip}")
         print(f"        Connection  : {self.conn_type} ({self.conn_mode})")
     
     def _get_config_paths(self) -> dict:
         return {
-            'joystick': os.path.join(self.go2_package_dir, 'config', 'joystick.yaml'),
             'twistmux': os.path.join(self.go2_package_dir, 'config', 'twist_mux.yaml'),
             'cyclonedds': os.path.join(self.go2_package_dir, 'config', 'cyclonedds_jetson.xml'),
         }
@@ -40,15 +37,6 @@ class Go2NodeFactory:
     def _load_urdf_content(self, urdf_path: str) -> str:
         with open(urdf_path, 'r') as file:
             return file.read()
-        
-    def create_launch_arguments(self) -> List[DeclareLaunchArgument]:
-        return [
-            DeclareLaunchArgument(
-                'camera', 
-                default_value='true',
-                description='Enable/disable Camera Nodes [boolean]'
-            ),
-        ]
 
     def create_core_nodes(self) -> List[Node]:       
         return [
@@ -70,11 +58,6 @@ class Go2NodeFactory:
     def create_teleop_nodes(self) -> List[Node]:
         return [
             Node(
-                package='joy',
-                executable='joy_node',
-                parameters=[self.config.config_paths['joystick']],
-            ),
-            Node(
                 package='teleop_twist_joy',
                 executable='teleop_node',
                 name='go2_teleop_node',
@@ -88,24 +71,22 @@ class Go2NodeFactory:
                 parameters=[self.config.config_paths['twistmux']],
             ),
         ]
-    
+
     def create_camera_nodes(self) -> List[Node]:
         return [
             Node(
                 package='go2_robot_sdk',
                 executable='go2_gstreamer_jetson_node',
-                name='go2_gstreamer_jetson_node',
-                condition=IfCondition(LaunchConfiguration('camera'))
+                name='go2_gstreamer_jetson_node'
             ),
         ]
-    
+
 
 def generate_launch_description():
 
     config = Go2LaunchConfig()
     factory = Go2NodeFactory(config)
 
-    launch_args = factory.create_launch_arguments()
     core_nodes = factory.create_core_nodes()
     teleop_nodes = factory.create_teleop_nodes()
     camera_nodes = factory.create_camera_nodes()
@@ -121,7 +102,6 @@ def generate_launch_description():
     ]
     
     launch_entities = (
-        launch_args +
         env_setup +
         core_nodes +
         teleop_nodes +
