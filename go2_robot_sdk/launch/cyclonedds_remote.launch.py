@@ -17,7 +17,6 @@ class Go2LaunchConfig:
         self.conn_mode = "single"
         
         self.go2_package_dir = get_package_share_directory('go2_robot_sdk')
-        self.aggregator_package_dir = get_package_share_directory('pointcloud2_aggregator')
         self.config_paths = self._get_config_paths()
         
         print(f"        Go2 Launch Configuration") 

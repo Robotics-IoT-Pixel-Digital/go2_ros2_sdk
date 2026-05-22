@@ -8,7 +8,7 @@
 
   Server Wi-Fi interface: wlp3s0
   Server IP: 10.1.2.33/18
-  Jetson IP: 10.1.33.208
+  Jetson WiFi IP: 10.1.33.208
 -->
 <CycloneDDS xmlns="https://cdds.io/config" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://cdds.io/config https://raw.githubusercontent.com/eclipse-cyclonedds/cyclonedds/master/etc/cyclonedds.xsd">
 	<Domain id="0">
@@ -23,7 +23,13 @@
 
 		<Discovery>
 			<Peers>
+				<!--
+					IP WiFi Jetson Gateway (MANDATORY)
+				-->
 				<Peer address="10.1.33.208"/>
+				<!-- 
+                    Localhost
+                 -->
 				<Peer address="localhost"/>
 			</Peers>
 			<ParticipantIndex>auto</ParticipantIndex>

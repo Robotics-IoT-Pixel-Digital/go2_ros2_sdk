@@ -71,7 +71,7 @@ class Go2NodeFactory:
             ),
             DeclareLaunchArgument(
                 'remote',
-                default_value='false',
+                default_value='true',
                 description='Enable/disable remote control [boolean]'
             ),
         ]

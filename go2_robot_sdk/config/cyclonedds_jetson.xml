@@ -38,15 +38,19 @@
             -->
             <Peers>
                 <!-- 
-                    IP Robot Dog
+                    IP Robot Dog (MANDATORY)
                  -->
                 <Peer address="192.168.123.161"/>
                 <!-- 
-                    IP Laptop SSID: Indicator@id
+                    IP Client: Laptop Ubuntu (WiFi SSID: Indicator@id)
                  -->
                 <Peer address="10.1.2.33"/>
                 <!-- 
-                    IP Laptop SSID: test_starlink
+                    IP Client: Laptop Ubuntu (Ethernet SSID: Indicator@id)
+                 -->
+                <Peer address="10.253.128.185"/>
+                <!-- 
+                    IP Client: Laptop Ubuntu (WiFi SSID: test_starlink)
                  -->
                 <Peer address="192.168.1.12"/>
                 <!-- 

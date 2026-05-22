@@ -3,7 +3,7 @@ from typing import List
 from ament_index_python.packages import get_package_share_directory
 from launch_ros.actions import Node
 from launch import LaunchDescription
-from launch.actions import SetEnvironmentVariable
+from launch.actions import SetEnvironmentVariable, ExecuteProcess
 
 
 class Go2LaunchConfig:
@@ -15,7 +15,6 @@ class Go2LaunchConfig:
         self.conn_mode = "single"
 
         self.go2_package_dir = get_package_share_directory('go2_robot_sdk')
-        self.aggregator_package_dir = get_package_share_directory('pointcloud2_aggregator')
         self.config_paths = self._get_config_paths()
 
         print(f"        Go2 Launch Configuration") 
@@ -80,6 +79,14 @@ class Go2NodeFactory:
                 name='go2_gstreamer_jetson_node'
             ),
         ]
+    
+    def create_mqtt_joy(self) -> List:
+        return [
+            ExecuteProcess(
+                cmd=['/home/ubuntu/Projects/UnitreeGo2/joy/run-joy-bridge.sh'],
+                output='screen',
+            ),
+        ]
 
 
 def generate_launch_description():
@@ -90,6 +97,8 @@ def generate_launch_description():
     core_nodes = factory.create_core_nodes()
     teleop_nodes = factory.create_teleop_nodes()
     camera_nodes = factory.create_camera_nodes()
+    mqtt_joy_node = factory.create_mqtt_joy()
+
 
     print(f"🔧 Setting up CycloneDDS environment")
     print(f"   Config file: {config.config_paths['cyclonedds']}")
@@ -105,7 +114,9 @@ def generate_launch_description():
         env_setup +
         core_nodes +
         teleop_nodes +
-        camera_nodes
+        camera_nodes +
+        mqtt_joy_node
+
     )
     
     return LaunchDescription(launch_entities)
