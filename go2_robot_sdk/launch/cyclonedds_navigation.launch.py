@@ -35,6 +35,7 @@ class Go2LaunchConfig:
             'aggregator': os.path.join(self.aggregator_package_dir, 'config', 'aggregator.yaml'),
             'nav2': os.path.join(self.go2_package_dir, 'config', 'params_navigation.yaml'),
             'keepout': os.path.join(self.go2_package_dir, 'config', 'params_keepout.yaml'),
+            'stair_zone': os.path.join(self.go2_package_dir, 'config', 'params_stair_zone.yaml'),
         }
     
 
@@ -73,6 +74,18 @@ class Go2NodeFactory:
                 'remote',
                 default_value='true',
                 description='Enable/disable remote control [boolean]'
+            ),
+            DeclareLaunchArgument(
+                'stair_zone_mask',
+                default_value='false',
+                description='Enable/disable stair zone mask [boolean]'
+            ),
+            DeclareLaunchArgument(
+                'stair_zone_map',
+                default_value=os.path.join(
+                    os.getcwd(), 'src', 'go2_robot_sdk', 'maps', 'Studio_stair_mask.yaml'
+                ),
+                description='Absolute path to the stair zone mask yaml file'
             ),
         ]
         
@@ -232,6 +245,43 @@ class Go2NodeFactory:
             ),
         ]
     
+    def create_stair_zone_nodes(self) -> List[Node]:
+        return [
+            Node(
+                package='nav2_map_server',
+                executable='map_server',
+                name='stair_zone_filter_mask_server',
+                output='screen',
+                condition=IfCondition(LaunchConfiguration('stair_zone_mask')),
+                parameters=[
+                    {'yaml_filename': LaunchConfiguration('stair_zone_map')},
+                    self.config.config_paths['stair_zone'],
+                ],
+            ),
+            Node(
+                package='nav2_map_server',
+                executable='costmap_filter_info_server',
+                name='stair_zone_costmap_filter_info_server',
+                output='screen',
+                condition=IfCondition(LaunchConfiguration('stair_zone_mask')),
+                parameters=[self.config.config_paths['stair_zone']],
+            ),
+            Node(
+                package='nav2_lifecycle_manager',
+                executable='lifecycle_manager',
+                name='lifecycle_manager_stair_zone',
+                output='screen',
+                condition=IfCondition(LaunchConfiguration('stair_zone_mask')),
+                parameters=[
+                    {'use_sim_time': False}, {'autostart': True},
+                    {'node_names': [
+                        'stair_zone_filter_mask_server',
+                        'stair_zone_costmap_filter_info_server',
+                    ]}
+                ],
+            ),
+        ]
+
     def create_nav2_launches(self) -> List[IncludeLaunchDescription]:
         return [
             IncludeLaunchDescription(
@@ -278,6 +328,7 @@ def generate_launch_description():
     visualization_nodes = factory.create_visualization_nodes()
     camera_nodes = factory.create_camera_nodes()
     keepout_nodes = factory.create_keepout_nodes()
+    stair_zone_nodes = factory.create_stair_zone_nodes()
     nav2_launches = factory.create_nav2_launches()
     localization_launches = factory.create_localization_launches()  
 
@@ -302,7 +353,8 @@ def generate_launch_description():
         visualization_nodes + 
         camera_nodes +
         keepout_nodes +
-        nav2_launches + 
+        stair_zone_nodes +
+        nav2_launches +
         localization_launches
     )
     

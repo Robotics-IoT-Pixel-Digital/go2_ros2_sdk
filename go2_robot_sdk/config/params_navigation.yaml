@@ -182,38 +182,31 @@ controller_server:
       GoalDist.scale: 14.0
 
 
-# collision_monitor:
-#   ros__parameters:
-#     enabled: True
-#     base_frame_id: "base_link"
-#     odom_frame_id: "odom"
-#     cmd_vel_in_topic: "cmd_vel"
-#     cmd_vel_out_topic: "cmd_vel_nav"
-#     transform_tolerance: 0.3
-#     source_timeout: 2.0
-#     stop_pub_timeout: 1.0
+collision_monitor:
+  ros__parameters:
+    enabled: True
+    base_frame_id: "base_link"
+    odom_frame_id: "odom"
+    cmd_vel_in_topic: "cmd_vel"
+    cmd_vel_out_topic: "cmd_vel_nav"
+    transform_tolerance: 0.3
+    source_timeout: 2.0
+    stop_pub_timeout: 1.0
 
-#     observation_sources: ["scan"]
-#     scan:
-#       type: "scan"
-#       topic: "/scan"
-#       enabled: true
-#       min_height: 0.05
-#       max_height: 2.0
+    observation_sources: ["scan"]
+    scan:
+      type: "scan"
+      topic: "/scan"
+      enabled: true
+      min_height: 0.05
+      max_height: 2.0
 
-#     polygons: ["FrontStop", "FrontSlow"]
-#     FrontStop:
-#       type: "polygon"
-#       points: "[[0.5,0.35],[0.5,-0.35],[0.0,-0.35],[0.0,0.35]]"
-#       action_type: "stop"
-#       min_points: 3
-#       # visualize: True
-#     FrontSlow:
-#       type: "polygon"
-#       points: "[[0.8,0.5],[0.8,-0.5],[0.0,-0.5],[0.0,0.5]]"
-#       action_type: "slowdown"
-#       slowdown_ratio: 0.4
-#       # visualize: True
+    polygons: ["FrontStop"]
+    FrontStop:
+      type: "polygon"
+      points: "[[0.25,0.20],[0.25,-0.20],[0.05,-0.20],[0.05,0.20]]"
+      action_type: "stop"
+      min_points: 3
 
 
 local_costmap:
@@ -230,7 +223,7 @@ local_costmap:
       resolution: 0.05
 
       footprint: "[ [0.360, 0.200], [0.360, -0.200], [-0.450, -0.200], [-0.450, 0.200] ]"
-      filters: ["keepout_filter"]
+      filters: ["keepout_filter", "stair_zone_filter"]
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
 
       keepout_filter:
@@ -239,14 +232,19 @@ local_costmap:
         # enabled: true
         enabled: false
 
+      stair_zone_filter:
+        plugin: "go2_stair_zone_filter::StairZoneFilter"
+        filter_info_topic: "/stair_zone_costmap_filter_info"
+        enabled: true
+
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: True
-      
+
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: True
-        observation_sources: scan 
+        observation_sources: scan
         scan:
           topic: /scan
           data_type: "LaserScan"
@@ -283,7 +281,7 @@ global_costmap:
       track_unknown_space: False
       
       footprint: "[ [0.360, 0.200], [0.360, -0.200], [-0.450, -0.200], [-0.450, 0.200] ]"
-      filters: ["keepout_filter"]
+      filters: ["keepout_filter", "stair_zone_filter"]
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
 
       keepout_filter:
@@ -291,6 +289,11 @@ global_costmap:
         filter_info_topic: "/keepout_costmap_filter_info"
         # enabled: true
         enabled: false
+
+      stair_zone_filter:
+        plugin: "go2_stair_zone_filter::StairZoneFilter"
+        filter_info_topic: "/stair_zone_costmap_filter_info"
+        enabled: true
 
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
@@ -449,7 +452,7 @@ lifecycle_manager_navigation:
   ros__parameters:
     use_sim_time: False
     autostart: true
-    node_names: ['controller_server', 'smoother_server', 'planner_server', 'behavior_server', 'bt_navigator', 'waypoint_follower', 'velocity_smoother']
+    node_names: ['controller_server', 'smoother_server', 'planner_server', 'behavior_server', 'bt_navigator', 'waypoint_follower', 'velocity_smoother', 'collision_monitor']
     bond_timeout: 4.0
     attempt_respawn_reconnection: true
     bond_respawn_max_duration: 10.0

@@ -26,6 +26,7 @@ setup(
         (os.path.join('share', package_name, 'external_lib'), ['external_lib/libvoxel.wasm']),
         (os.path.join('share', package_name, 'external_lib/aioice'), glob(os.path.join('external_lib/aioice/src/aioice', '*'))),
         (os.path.join('share', package_name, 'scripts'), glob(os.path.join('scripts', '*.sh'))),
+        (os.path.join('share', package_name, 'maps'), glob(os.path.join('maps', '*'))),
 
 
     ],
@@ -43,6 +44,7 @@ setup(
             'go2_driver_node = go2_robot_sdk.main:main',
             'go2_gstreamer_node = go2_robot_sdk.presentation.gstreamer_node:main',
             'go2_gstreamer_jetson_node = go2_robot_sdk.presentation.gstreamer_jetson_node:main',
+            'go2_stair_zone_safety_node = go2_robot_sdk.presentation.stair_zone_safety_node:main',
         ],
     },
 )

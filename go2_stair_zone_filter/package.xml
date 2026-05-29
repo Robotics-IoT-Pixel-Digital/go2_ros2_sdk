@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>go2_stair_zone_filter</name>
+  <version>0.1.0</version>
+  <description>Nav2 costmap filter that clears obstacles in designated stair zones</description>
+  <maintainer email="ibrahim@example.com">Ibrahim Fadhil Djauhari</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>nav2_costmap_2d</depend>
+  <depend>nav2_util</depend>
+  <depend>nav2_msgs</depend>
+  <depend>pluginlib</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>tf2</depend>
+  <depend>tf2_ros</depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+    <nav2_costmap_2d plugin="${prefix}/stair_zone_filter_plugin.xml" />
+  </export>
+</package>

@@ -1,0 +1,9 @@
+<library path="stair_zone_filter">
+  <class type="go2_stair_zone_filter::StairZoneFilter"
+         base_class_type="nav2_costmap_2d::Layer">
+    <description>
+      Clears all costmap cost in designated stair zones, overriding
+      static obstacles and dynamic laser scan detections.
+    </description>
+  </class>
+</library>
