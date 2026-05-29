@@ -106,7 +106,7 @@ void StairZoneFilter::updateBounds(
 void StairZoneFilter::process(
   nav2_costmap_2d::Costmap2D & master_grid,
   int min_i, int min_j, int max_i, int max_j,
-  const geometry_msgs::msg::Pose & /*pose*/)
+  const geometry_msgs::msg::Pose2D & /*pose*/)
 {
   if (!filter_mask_ || !enabled_) {
     return;
@@ -152,7 +152,8 @@ void StairZoneFilter::process(
         continue;
       }
 
-      unsigned char mask_cost = getMaskCost(filter_mask_, mx, my);
+      unsigned char mask_cost = static_cast<unsigned char>(
+        filter_mask_->data[my * filter_mask_->info.width + mx]);
 
       if (mask_cost == nav2_costmap_2d::LETHAL_OBSTACLE) {
         unsigned int master_index = master_grid.getIndex(i, j);

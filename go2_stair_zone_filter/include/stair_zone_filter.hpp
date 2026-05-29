@@ -5,6 +5,7 @@
 #include <string>
 
 #include "nav2_costmap_2d/costmap_filters/costmap_filter.hpp"
+#include "geometry_msgs/msg/pose2_d.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "nav2_msgs/msg/costmap_filter_info.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -23,7 +24,7 @@ public:
   void process(
     nav2_costmap_2d::Costmap2D & master_grid,
     int min_i, int min_j, int max_i, int max_j,
-    const geometry_msgs::msg::Pose & pose) override;
+    const geometry_msgs::msg::Pose2D & pose) override;
 
   void resetFilter() override;
 
