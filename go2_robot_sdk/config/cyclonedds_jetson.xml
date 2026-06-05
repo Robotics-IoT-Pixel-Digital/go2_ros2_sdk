@@ -22,8 +22,8 @@
                 If your interface names differ, update them accordingly.
             -->
             <Interfaces>
-                <NetworkInterface name="enP8p1s0" priority="default" multicast="true" />
-                <NetworkInterface name="wlP1p1s0" priority="default" multicast="true" />
+                <NetworkInterface name="enp2s0" priority="default" multicast="true" />
+                <NetworkInterface name="wlp3s0" priority="default" multicast="true" />
             </Interfaces>
             <!-- Enable multicast for better discovery -->
             <AllowMulticast>true</AllowMulticast>

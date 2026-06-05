@@ -4,6 +4,7 @@
 #include "nav2_costmap_2d/cost_values.hpp"
 #include "pluginlib/class_list_macros.hpp"
 #include "tf2/utils.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 PLUGINLIB_EXPORT_CLASS(go2_stair_zone_filter::StairZoneFilter,
                        nav2_costmap_2d::Layer)
@@ -155,9 +156,12 @@ void StairZoneFilter::process(
       unsigned char mask_cost = static_cast<unsigned char>(
         filter_mask_->data[my * filter_mask_->info.width + mx]);
 
-      if (mask_cost == nav2_costmap_2d::LETHAL_OBSTACLE) {
+      if (mask_cost == 0) {
         unsigned int master_index = master_grid.getIndex(i, j);
-        master_array[master_index] = nav2_costmap_2d::FREE_SPACE;
+        unsigned char current = master_array[master_index];
+        if (current != nav2_costmap_2d::FREE_SPACE) {
+          master_array[master_index] = nav2_costmap_2d::FREE_SPACE;
+        }
       }
     }
   }

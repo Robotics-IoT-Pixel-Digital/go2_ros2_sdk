@@ -31,7 +31,7 @@ class Go2LaunchConfig:
             'twistmux': os.path.join(self.go2_package_dir, 'config', 'twist_mux.yaml'),
             'rviz': os.path.join(self.go2_package_dir, 'config', 'navigation.rviz'),
             'urdf': os.path.join(self.go2_package_dir, 'urdf', 'go2.urdf'),
-            'cyclonedds': os.path.join(self.go2_package_dir, 'config', 'cyclonedds_jetson.xml'),
+            'cyclonedds': os.path.join(self.go2_package_dir, 'config', 'cyclonedds.xml'),
             'aggregator': os.path.join(self.aggregator_package_dir, 'config', 'aggregator.yaml'),
             'nav2': os.path.join(self.go2_package_dir, 'config', 'params_navigation.yaml'),
             'keepout': os.path.join(self.go2_package_dir, 'config', 'params_keepout.yaml'),
@@ -83,7 +83,7 @@ class Go2NodeFactory:
             DeclareLaunchArgument(
                 'stair_zone_map',
                 default_value=os.path.join(
-                    os.getcwd(), 'src', 'go2_robot_sdk', 'maps', 'Studio_stair_mask.yaml'
+                    os.getcwd(), 'src', 'go2_robot_sdk', 'maps', 'stair_keepout.yaml'
                 ),
                 description='Absolute path to the stair zone mask yaml file'
             ),
